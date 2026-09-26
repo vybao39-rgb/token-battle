@@ -34,6 +34,7 @@ import {
   type BattleRequest,
   type BattleResult,
   type ChainId,
+  type MarketBenchmark,
   type TokenScore,
 } from "@/lib/token-battle";
 
@@ -69,13 +70,13 @@ const CHAINS: Array<{ value: ChainId; label: string }> = [
 type Status = "idle" | "loading" | "success" | "error";
 
 function asBattleRequest(value: unknown): BattleRequest {
-  if (!value || typeof value !== "object") throw new Error("Thiếu dữ liệu so sánh.");
+  if (!value || typeof value !== "object") throw new Error("Comparison input is missing.");
   const input = value as Record<string, unknown>;
   const chain = String(input.chain ?? "");
   const tokenA = String(input.tokenA ?? "").trim();
   const tokenB = String(input.tokenB ?? "").trim();
-  if (!CHAINS.some((item) => item.value === chain)) throw new Error("Mạng chưa được hỗ trợ.");
-  if (!tokenA || !tokenB) throw new Error("Cần nhập đủ hai contract address.");
+  if (!CHAINS.some((item) => item.value === chain)) throw new Error("This network is not supported.");
+  if (!tokenA || !tokenB) throw new Error("Enter both contract addresses.");
   return { chain: chain as ChainId, tokenA, tokenB };
 }
 
@@ -95,13 +96,13 @@ export default function Home() {
         body: JSON.stringify(nextRequest),
       });
       const body = (await response.json()) as BattleResult & { message?: string };
-      if (!response.ok) throw new Error(body.message || "Không thể lấy dữ liệu Nansen.");
+      if (!response.ok) throw new Error(body.message || "Nansen data could not be loaded.");
       setRequest(nextRequest);
       setResult(body);
       setStatus("success");
       return body;
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : "Đã xảy ra lỗi không xác định.";
+      const message = caught instanceof Error ? caught.message : "An unknown error occurred.";
       setError(message);
       setStatus("error");
       throw caught;
@@ -116,9 +117,9 @@ export default function Home() {
       context.registerTool(
         {
           name: "compare_tokens",
-          title: "So sánh hai token",
+          title: "Compare two tokens",
           description:
-            "So sánh sức khỏe on-chain của hai contract trên cùng một mạng và cập nhật kết quả Token Battle đang hiển thị.",
+            "Compare the onchain health of two contracts on the same network and update the displayed Token Battle result.",
           inputSchema: {
             type: "object",
             properties: {
@@ -164,7 +165,7 @@ export default function Home() {
   return (
     <main className="min-h-screen overflow-hidden bg-background text-foreground">
       <div className="noise" aria-hidden="true" />
-      <div className="mx-auto w-full max-w-[1440px] px-4 pb-16 pt-5 sm:px-7 lg:px-10">
+      <div className="mx-auto w-full max-w-[1600px] px-4 pb-16 pt-5 sm:px-7 lg:px-10">
         <header className="flex items-center justify-between border-b border-white/10 pb-5">
           <div className="flex items-center gap-3">
             <div className="grid size-10 place-items-center rounded-xl border border-lime-300/35 bg-lime-300/10 text-lime-300 shadow-[0_0_30px_rgba(190,242,100,0.12)]">
@@ -187,7 +188,7 @@ export default function Home() {
                 <span className="absolute inline-flex size-full animate-ping rounded-full bg-current opacity-50" />
                 <span className="relative inline-flex size-1.5 rounded-full bg-current" />
               </span>
-              {result.mode === "live" ? "Live Nansen" : "Dữ liệu mẫu"}
+              {result.mode === "live" ? "Live Nansen" : "Sample data"}
             </Badge>
           </div>
         </header>
@@ -198,15 +199,15 @@ export default function Home() {
               <div>
                 <p className="eyebrow">Battle setup</p>
                 <h1 className="mt-2 font-display text-3xl font-black leading-none tracking-[-0.04em]">
-                  Token nào<br /> đang khỏe hơn?
+                  Which token<br /> is stronger?
                 </h1>
               </div>
-              <div className="metric-chip"><Braces /> 4 API calls</div>
+              <div className="metric-chip"><Braces /> 6 API calls</div>
             </div>
 
             <form onSubmit={submit} className="space-y-5">
               <label className="block">
-                <span className="field-label">Mạng lưới</span>
+                <span className="field-label">Network</span>
                 <Select value={request.chain} onValueChange={(value) => setRequest((current) => ({ ...current, chain: value as ChainId }))}>
                   <SelectTrigger className="h-12 w-full border-white/10 bg-slate-950/70 text-base text-white">
                     <SelectValue />
@@ -218,18 +219,18 @@ export default function Home() {
               </label>
 
               <div className="relative space-y-3">
-                <TokenInput label="Đấu sĩ A" accent="lime" value={request.tokenA} onChange={(value) => setRequest((current) => ({ ...current, tokenA: value }))} />
+                <TokenInput label="Challenger A" accent="lime" value={request.tokenA} onChange={(value) => setRequest((current) => ({ ...current, tokenA: value }))} />
                 <Button
                   type="button"
                   onClick={swap}
                   variant="outline"
                   size="icon-sm"
-                  aria-label="Đổi vị trí hai token"
+                  aria-label="Swap token positions"
                   className="absolute left-1/2 top-[72px] z-10 -translate-x-1/2 rounded-full border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white"
                 >
                   <ArrowLeftRight />
                 </Button>
-                <TokenInput label="Đấu sĩ B" accent="cyan" value={request.tokenB} onChange={(value) => setRequest((current) => ({ ...current, tokenB: value }))} />
+                <TokenInput label="Challenger B" accent="cyan" value={request.tokenB} onChange={(value) => setRequest((current) => ({ ...current, tokenB: value }))} />
               </div>
 
               <Button
@@ -237,7 +238,7 @@ export default function Home() {
                 disabled={status === "loading"}
                 className="h-12 w-full rounded-xl bg-lime-300 font-display text-base font-black uppercase tracking-wide text-slate-950 shadow-[0_0_28px_rgba(190,242,100,0.18)] hover:bg-lime-200"
               >
-                {status === "loading" ? <><LoaderCircle className="animate-spin" /> Đang gọi Nansen</> : <><Swords /> Bắt đầu so sánh</>}
+                {status === "loading" ? <><LoaderCircle className="animate-spin" /> Calling Nansen</> : <><Swords /> Start battle</>}
               </Button>
             </form>
 
@@ -248,7 +249,7 @@ export default function Home() {
             ) : null}
 
             <div className="mt-6 border-t border-white/8 pt-5">
-              <p className="field-label">Dữ liệu sử dụng</p>
+              <p className="field-label">Data sources</p>
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-400">
                 <span className="data-pill"><Database /> Token Information</span>
                 <span className="data-pill"><TrendingUp /> Flow Intelligence</span>
@@ -264,32 +265,33 @@ export default function Home() {
                   <div className="flex items-center gap-3">
                     <div className="grid size-11 place-items-center rounded-xl bg-lime-300 text-slate-950"><Crown className="size-5" /></div>
                     <div>
-                      <p className="eyebrow">Kết quả trận đấu</p>
-                      <h2 className="font-display text-xl font-black sm:text-2xl">{winner ? `${winner.symbol} đang dẫn trước` : "Kết quả hòa"}</h2>
+                      <p className="eyebrow">Battle result</p>
+                      <h2 className="font-display text-xl font-black sm:text-2xl">{winner ? `${winner.symbol} takes the lead` : "The battle is a draw"}</h2>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-slate-400">
-                    <span>Khung dữ liệu: 24h</span><span className="size-1 rounded-full bg-slate-600" />
+                    <span>Timeframe: 24h</span><span className="size-1 rounded-full bg-slate-600" />
                     <time dateTime={result.checkedAt}>{formatCheckedAt(result.checkedAt)}</time>
                   </div>
                 </div>
               </div>
 
-              <div className="relative grid lg:grid-cols-[1fr_72px_1fr]">
+              <div className="relative grid xl:grid-cols-[minmax(0,1fr)_56px_minmax(0,1fr)_minmax(260px,.82fr)]">
                 <TokenPanel token={result.tokenA} accent="lime" winner={result.winner === "A"} />
-                <div className="relative hidden items-center justify-center lg:flex">
+                <div className="relative hidden items-center justify-center xl:flex">
                   <div className="absolute inset-y-0 left-1/2 w-px bg-white/8" />
                   <span className="relative grid size-11 place-items-center rounded-full border border-white/10 bg-[#09101f] font-display text-sm font-black text-slate-400">VS</span>
                 </div>
-                <div className="flex items-center gap-3 px-5 py-1 lg:hidden"><span className="h-px flex-1 bg-white/8" /><span className="font-display text-xs font-black text-slate-500">VS</span><span className="h-px flex-1 bg-white/8" /></div>
+                <div className="flex items-center gap-3 px-5 py-1 xl:hidden"><span className="h-px flex-1 bg-white/8" /><span className="font-display text-xs font-black text-slate-500">VS</span><span className="h-px flex-1 bg-white/8" /></div>
                 <TokenPanel token={result.tokenB} accent="cyan" winner={result.winner === "B"} />
+                <BenchmarkPanel benchmarks={result.benchmarks} mode={result.mode} />
               </div>
             </div>
 
             <div className="grid gap-5 lg:grid-cols-[1.25fr_.75fr]">
               <div className="terminal-card p-5 sm:p-6">
                 <div className="flex items-center justify-between gap-3">
-                  <div><p className="eyebrow">Evidence board</p><h3 className="mt-1 font-display text-xl font-black">Vì sao có kết quả này?</h3></div>
+                  <div><p className="eyebrow">Evidence board</p><h3 className="mt-1 font-display text-xl font-black">Why did this token win?</h3></div>
                   <Sparkles className="size-5 text-cyan-300" />
                 </div>
                 <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -306,13 +308,13 @@ export default function Home() {
 
               <div className="terminal-card flex flex-col p-5 sm:p-6">
                 <p className="eyebrow">Scoring model</p>
-                <h3 className="mt-1 font-display text-xl font-black">4 trụ cột × 25 điểm</h3>
+                <h3 className="mt-1 font-display text-xl font-black">4 pillars × 25 points</h3>
                 <div className="mt-5 space-y-3 text-sm text-slate-300">
                   {[
-                    ["Thanh khoản", "Liquidity/Market Cap"],
-                    ["Áp lực mua", "Buy/Sell volume + traders"],
-                    ["Dòng tiền", "Smart, Top PnL, Whale, CEX"],
-                    ["Độ rộng", "Holders + unique traders"],
+                    ["Liquidity", "Liquidity/Market Cap"],
+                    ["Buy pressure", "Buy/Sell volume + traders"],
+                    ["Quality flow", "Smart, Top PnL, Whale, CEX"],
+                    ["Market breadth", "Holders + unique traders"],
                   ].map(([label, detail], index) => (
                     <div key={label} className="flex items-center justify-between gap-3 border-b border-white/6 pb-3 last:border-0">
                       <span><b className="mr-2 text-lime-300">0{index + 1}</b>{label}</span><span className="text-right text-xs text-slate-500">{detail}</span>
@@ -320,7 +322,7 @@ export default function Home() {
                   ))}
                 </div>
                 <p className="mt-auto pt-5 text-xs leading-relaxed text-slate-500">
-                  Điểm số là mô hình so sánh, không phải lời khuyên đầu tư. Giá, volume và nhãn ví không chứng minh thanh khoản thực thi hoặc danh tính pháp lý.
+                  Scores are comparative indicators, not investment advice. Price, volume, and wallet labels do not prove executable liquidity or legal identity.
                 </p>
               </div>
             </div>
@@ -349,7 +351,7 @@ function TokenInput({ label, value, accent, onChange }: { label: string; value: 
       <span className="field-label flex items-center gap-2">
         <span className={accent === "lime" ? "size-2 rounded-full bg-lime-300" : "size-2 rounded-full bg-cyan-300"} />{label}
       </span>
-      <Input required spellCheck={false} autoComplete="off" aria-label={`${label} contract address`} value={value} onChange={(event) => onChange(event.target.value)} placeholder="0x... hoặc Solana mint" className="h-12 rounded-xl border-white/10 bg-slate-950/70 font-mono text-[13px] text-slate-100 shadow-none placeholder:text-slate-600 focus-visible:border-lime-300/50 focus-visible:ring-lime-300/15" />
+      <Input required spellCheck={false} autoComplete="off" aria-label={`${label} contract address`} value={value} onChange={(event) => onChange(event.target.value)} placeholder="0x... or Solana mint" className="h-12 rounded-xl border-white/10 bg-slate-950/70 font-mono text-[13px] text-slate-100 shadow-none placeholder:text-slate-600 focus-visible:border-lime-300/50 focus-visible:ring-lime-300/15" />
     </label>
   );
 }
@@ -361,12 +363,10 @@ function TokenPanel({ token, accent, winner }: { token: TokenScore; accent: "lim
     <article className="p-5 sm:p-7">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className={`font-display text-3xl font-black tracking-[-0.04em] ${accentText}`}>{token.symbol}</span>
-            {winner ? <Badge className="bg-lime-300 text-slate-950"><Crown /> Winner</Badge> : null}
-          </div>
+          <span className={`font-display text-3xl font-black tracking-[-0.04em] ${accentText}`}>{token.symbol}</span>
           <p className="mt-1 truncate text-sm text-slate-400">{token.name}</p>
           <p className="mt-1 font-mono text-xs text-slate-600">{address}</p>
+          {winner ? <Badge className="mt-3 bg-lime-300 text-slate-950"><Crown /> Winner</Badge> : null}
         </div>
         <div className="text-right"><span className="font-display text-5xl font-black tracking-[-0.06em] text-white">{token.score}</span><span className="ml-1 text-sm text-slate-500">/100</span></div>
       </div>
@@ -376,12 +376,68 @@ function TokenPanel({ token, accent, winner }: { token: TokenScore; accent: "lim
       </div>
 
       <div className="mt-7 grid grid-cols-3 gap-2 border-t border-white/8 pt-5">
-        <Stat label="Thanh khoản" value={formatUsd(token.raw.liquidityUsd)} />
-        <Stat label="Volume 24h" value={formatUsd(token.raw.volumeUsd)} />
+        <Stat label="Liquidity" value={formatUsd(token.raw.liquidityUsd)} />
+        <Stat label="24h volume" value={formatUsd(token.raw.volumeUsd)} />
         <Stat label="Holders" value={formatNumber(token.raw.holders)} />
       </div>
     </article>
   );
+}
+
+function BenchmarkPanel({ benchmarks, mode }: { benchmarks: MarketBenchmark[]; mode: BattleResult["mode"] }) {
+  return (
+    <aside className="border-t border-white/8 bg-slate-950/20 p-5 sm:p-7 xl:border-l xl:border-t-0">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="eyebrow">Market benchmark</p>
+          <h3 className="mt-1 font-display text-2xl font-black tracking-[-0.03em]">BTC &amp; ETH</h3>
+        </div>
+        <Badge variant="outline" className="border-violet-300/25 bg-violet-300/5 text-violet-200">
+          {mode === "live" ? "Nansen Perps" : "Sample"}
+        </Badge>
+      </div>
+      <p className="mt-2 text-xs leading-relaxed text-slate-500">24h Hyperliquid perpetuals context from Nansen.</p>
+
+      <div className="mt-5 space-y-3">
+        {benchmarks.map((asset) => {
+          const positive = asset.priceChangePct >= 0;
+          return (
+            <article key={asset.symbol} className="rounded-2xl border border-white/8 bg-white/[0.025] p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className={asset.symbol === "BTC" ? "grid size-9 place-items-center rounded-xl bg-amber-300/12 font-display font-black text-amber-300" : "grid size-9 place-items-center rounded-xl bg-violet-300/12 font-display font-black text-violet-300"}>
+                    {asset.symbol.slice(0, 1)}
+                  </span>
+                  <div><p className="font-display text-lg font-black text-white">{asset.symbol}</p><p className="text-xs text-slate-500">{asset.name}</p></div>
+                </div>
+                {asset.available ? (
+                  <div className="text-right">
+                    <p className="font-mono text-sm font-semibold text-slate-100">{formatUsd(asset.markPriceUsd)}</p>
+                    <p className={positive ? "mt-1 text-xs font-semibold text-lime-300" : "mt-1 text-xs font-semibold text-red-300"}>{positive ? "+" : ""}{asset.priceChangePct.toFixed(2)}%</p>
+                  </div>
+                ) : <span className="text-xs text-slate-500">Unavailable</span>}
+              </div>
+
+              {asset.available ? (
+                <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-white/6 pt-4">
+                  <BenchmarkStat label="Buy share" value={`${asset.buySharePct.toFixed(1)}%`} />
+                  <BenchmarkStat label="24h volume" value={formatUsd(asset.volumeUsd)} />
+                  <BenchmarkStat label="Open interest" value={formatUsd(asset.openInterestUsd)} />
+                  <BenchmarkStat label="Funding" value={`${(asset.fundingRate * 100).toFixed(4)}%`} />
+                </div>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+
+      <p className="mt-4 text-[11px] leading-relaxed text-slate-600">Benchmark metrics provide market context only and are not included in the two-token health score.</p>
+    </aside>
+  );
+}
+
+function BenchmarkStat({ label, value }: { label: string; value: string }) {
+  return <div><p className="text-[10px] uppercase tracking-wide text-slate-600">{label}</p><p className="mt-1 truncate font-mono text-xs font-semibold text-slate-300">{value}</p></div>;
 }
 
 function MetricBar({ metric, accent }: { metric: BattleMetric; accent: "lime" | "cyan" }) {
@@ -408,6 +464,6 @@ function formatNumber(value: number) {
 
 function formatCheckedAt(value: string) {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Chưa cập nhật";
-  return new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", timeZone: "Asia/Ho_Chi_Minh" }).format(date) + " ICT";
+  if (Number.isNaN(date.getTime())) return "Not updated";
+  return new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short", timeZone: "Asia/Ho_Chi_Minh" }).format(date) + " ICT";
 }

@@ -11,14 +11,14 @@ const schema = z
   })
   .superRefine((value, context) => {
     if (value.tokenA.toLowerCase() === value.tokenB.toLowerCase()) {
-      context.addIssue({ code: "custom", message: "Hai contract address phải khác nhau." });
+      context.addIssue({ code: "custom", message: "The two contract addresses must be different." });
     }
     const evm = value.chain !== "solana";
     const validAddress = evm
       ? (address: string) => /^0x[a-fA-F0-9]{40}$/.test(address)
       : (address: string) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
-    if (!validAddress(value.tokenA)) context.addIssue({ code: "custom", path: ["tokenA"], message: "Contract A không đúng định dạng của mạng đã chọn." });
-    if (!validAddress(value.tokenB)) context.addIssue({ code: "custom", path: ["tokenB"], message: "Contract B không đúng định dạng của mạng đã chọn." });
+    if (!validAddress(value.tokenA)) context.addIssue({ code: "custom", path: ["tokenA"], message: "Contract A is not valid for the selected network." });
+    if (!validAddress(value.tokenB)) context.addIssue({ code: "custom", path: ["tokenB"], message: "Contract B is not valid for the selected network." });
   });
 
 export async function POST(request: Request) {
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     const parsed = schema.safeParse(await request.json());
     if (!parsed.success) {
       return NextResponse.json(
-        { message: parsed.error.issues[0]?.message || "Dữ liệu không hợp lệ." },
+        { message: parsed.error.issues[0]?.message || "Invalid input." },
         { status: 400 },
       );
     }
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(await runLiveBattle(parsed.data, apiKey));
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Không thể hoàn tất phép so sánh.";
+    const message = error instanceof Error ? error.message : "The comparison could not be completed.";
     const status = /credit|payment|forbidden/i.test(message) ? 402 : 502;
     return NextResponse.json({ message }, { status });
   }

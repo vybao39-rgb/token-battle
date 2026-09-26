@@ -2,14 +2,15 @@
 
 Token Battle compares two token contracts on the same chain and selects the stronger token using live Nansen data. It was built for the Nansen Meridian Buildathon.
 
-**Live demo:** https://token-battle-nansen.vybao93.chatgpt.site
+**Live demo:** https://token-battle-nansen.vercel.app
 
 ## What it does
 
-Each comparison makes four Nansen API calls:
+Each live comparison makes six Nansen API calls:
 
 - `POST /api/v1/tgm/token-information` for liquidity, market cap, volume, buy/sell activity, traders, and holders.
 - `POST /api/v1/tgm/flow-intelligence` for Smart Trader, Top PnL, Whale, and Exchange net flows.
+- `POST /api/v1/perp-screener` for separate BTC and ETH 24-hour market benchmarks on Hyperliquid.
 
 The app calculates a transparent 100-point score:
 
@@ -71,7 +72,7 @@ Without `NANSEN_API_KEY`, the interface clearly runs in **demo mode** with sampl
 1. **0–5s:** Show the Live Nansen badge and the selected chain.
 2. **5–15s:** Paste two real contract addresses.
 3. **15–25s:** Run the battle and show the winning token.
-4. **25–38s:** Highlight the four scoring pillars and evidence board.
+4. **25–38s:** Highlight the four scoring pillars, evidence board, and BTC/ETH benchmark column.
 5. **38–45s:** Show the public GitHub README and the read-only disclaimer.
 
 ## Data notes

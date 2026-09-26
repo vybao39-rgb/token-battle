@@ -4,6 +4,7 @@ import {
   type BattleEvidence,
   type BattleRequest,
   type BattleResult,
+  type MarketBenchmark,
   type TokenScore,
 } from "@/lib/token-battle";
 
@@ -12,19 +13,78 @@ type JsonObject = Record<string, unknown>;
 const API_BASE = "https://api.nansen.ai/api/v1";
 
 export async function runLiveBattle(request: BattleRequest, apiKey: string): Promise<BattleResult> {
-  const [tokenA, tokenB] = await Promise.all([
+  const [tokenA, tokenB, benchmarks] = await Promise.all([
     fetchTokenScore(request.chain, request.tokenA, apiKey),
     fetchTokenScore(request.chain, request.tokenB, apiKey),
+    fetchMarketBenchmarks(apiKey),
   ]);
   const winner = Math.abs(tokenA.score - tokenB.score) < 2 ? "draw" : tokenA.score > tokenB.score ? "A" : "B";
   return {
     mode: "live",
     winner,
     checkedAt: new Date().toISOString(),
-    callsUsed: 4,
+    callsUsed: 6,
     tokenA,
     tokenB,
+    benchmarks,
     summary: buildEvidence(tokenA, tokenB, winner),
+  };
+}
+
+async function fetchMarketBenchmarks(apiKey: string): Promise<MarketBenchmark[]> {
+  const to = new Date();
+  const from = new Date(to.getTime() - 24 * 60 * 60 * 1000);
+  return Promise.all(
+    (["BTC", "ETH"] as const).map(async (symbol) => {
+      try {
+        const response = await callNansen(
+          "/perp-screener",
+          {
+            date: { from: from.toISOString(), to: to.toISOString() },
+            pagination: { page: 1, per_page: 5 },
+            filters: { token_symbol: symbol, trader_type: "all" },
+            order_by: [{ field: "volume", direction: "DESC" }],
+          },
+          apiKey,
+        );
+        const row = Array.isArray(response.data) ? asObject(response.data[0]) : {};
+        const markPriceUsd = numberOf(row.mark_price);
+        const previousPriceUsd = numberOf(row.previous_price_usd);
+        const buyVolumeUsd = numberOf(row.buy_volume);
+        const sellVolumeUsd = numberOf(row.sell_volume);
+        return {
+          symbol,
+          name: symbol === "BTC" ? "Bitcoin" : "Ethereum",
+          available: Boolean(markPriceUsd),
+          markPriceUsd,
+          previousPriceUsd,
+          priceChangePct: previousPriceUsd > 0 ? ((markPriceUsd - previousPriceUsd) / previousPriceUsd) * 100 : 0,
+          buySharePct: buyVolumeUsd + sellVolumeUsd > 0 ? (buyVolumeUsd / (buyVolumeUsd + sellVolumeUsd)) * 100 : 50,
+          volumeUsd: numberOf(row.volume),
+          openInterestUsd: numberOf(row.open_interest),
+          fundingRate: numberOf(row.funding),
+          traderCount: numberOf(row.trader_count),
+        } satisfies MarketBenchmark;
+      } catch {
+        return unavailableBenchmark(symbol);
+      }
+    }),
+  );
+}
+
+function unavailableBenchmark(symbol: "BTC" | "ETH"): MarketBenchmark {
+  return {
+    symbol,
+    name: symbol === "BTC" ? "Bitcoin" : "Ethereum",
+    available: false,
+    markPriceUsd: 0,
+    previousPriceUsd: 0,
+    priceChangePct: 0,
+    buySharePct: 0,
+    volumeUsd: 0,
+    openInterestUsd: 0,
+    fundingRate: 0,
+    traderCount: 0,
   };
 }
 
@@ -68,10 +128,10 @@ async function fetchTokenScore(chain: string, address: string, apiKey: string): 
     score,
     raw,
     metrics: [
-      { key: "liquidity", label: "Thanh khoản", score: liquidityScore, display: formatCompactUsd(raw.liquidityUsd) },
-      { key: "buyPressure", label: "Áp lực mua", score: buyPressureScore, display: `${percent(raw.buyVolumeUsd, raw.buyVolumeUsd + raw.sellVolumeUsd)} buy` },
-      { key: "qualityFlow", label: "Dòng tiền chất lượng", score: qualityFlowScore, display: signedUsd(qualityFlowValue) },
-      { key: "breadth", label: "Độ rộng thị trường", score: breadthScore, display: `${formatCompactNumber(raw.holders)} holders` },
+      { key: "liquidity", label: "Liquidity", score: liquidityScore, display: formatCompactUsd(raw.liquidityUsd) },
+      { key: "buyPressure", label: "Buy pressure", score: buyPressureScore, display: `${percent(raw.buyVolumeUsd, raw.buyVolumeUsd + raw.sellVolumeUsd)} buy` },
+      { key: "qualityFlow", label: "Quality flow", score: qualityFlowScore, display: signedUsd(qualityFlowValue) },
+      { key: "breadth", label: "Market breadth", score: breadthScore, display: `${formatCompactNumber(raw.holders)} holders` },
     ],
   };
 }
@@ -88,7 +148,7 @@ async function callNansen(path: string, body: JsonObject, apiKey: string): Promi
     });
     const payload = (await response.json().catch(() => ({}))) as JsonObject;
     if (!response.ok) {
-      const message = stringOf(payload.message) || stringOf(payload.detail) || `Nansen API trả về lỗi ${response.status}.`;
+      const message = stringOf(payload.message) || stringOf(payload.detail) || `Nansen API returned error ${response.status}.`;
       throw new Error(message);
     }
     return payload;
@@ -133,23 +193,23 @@ function buildEvidence(a: TokenScore, b: TokenScore, winner: "A" | "B" | "draw")
   const breadthLeader = a.raw.holders >= b.raw.holders ? a : b;
   return [
     {
-      label: winner === "draw" ? "Hai token đang cân bằng" : `${leading.symbol} dẫn ở ${bestGap.metric.label.toLowerCase()}`,
-      detail: winner === "draw" ? "Chênh lệch tổng điểm dưới 2 điểm trong mô hình hiện tại." : `Khoảng cách lớn nhất là ${Math.max(bestGap.gap, 0)} điểm ở trụ cột ${bestGap.metric.label.toLowerCase()}.`,
+      label: winner === "draw" ? "The battle is evenly matched" : `${leading.symbol} leads on ${bestGap.metric.label.toLowerCase()}`,
+      detail: winner === "draw" ? "The total score difference is below two points in the current model." : `The widest gap is ${Math.max(bestGap.gap, 0)} points in ${bestGap.metric.label.toLowerCase()}.`,
       tone: "positive",
     },
     {
-      label: `${flowA >= flowB ? a.symbol : b.symbol} có quality flow tốt hơn`,
-      detail: "Kết hợp Smart Trader và Top PnL net flow trong khung 24 giờ.",
+      label: `${flowA >= flowB ? a.symbol : b.symbol} has stronger quality flow`,
+      detail: "Combines Smart Trader and Top PnL net flow over the last 24 hours.",
       tone: flowA === flowB ? "neutral" : "positive",
     },
     {
-      label: `${liquidityLeader.symbol} có thanh khoản hiển thị cao hơn`,
-      detail: `${formatCompactUsd(liquidityLeader.raw.liquidityUsd)} theo Token Information; chưa phải phép đo slippage thực thi.`,
+      label: `${liquidityLeader.symbol} has higher displayed liquidity`,
+      detail: `${formatCompactUsd(liquidityLeader.raw.liquidityUsd)} from Token Information; this is not an executable slippage test.`,
       tone: "neutral",
     },
     {
-      label: `${breadthLeader.symbol} có holder base rộng hơn`,
-      detail: `${formatCompactNumber(breadthLeader.raw.holders)} holders, dùng như tín hiệu độ rộng chứ không chứng minh phân phối công bằng.`,
+      label: `${breadthLeader.symbol} has a broader holder base`,
+      detail: `${formatCompactNumber(breadthLeader.raw.holders)} holders; a breadth signal, not proof of fair distribution.`,
       tone: "neutral",
     },
   ];

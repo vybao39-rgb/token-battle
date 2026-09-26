@@ -52,6 +52,20 @@ export type BattleEvidence = {
   tone: "positive" | "negative" | "neutral";
 };
 
+export type MarketBenchmark = {
+  symbol: "BTC" | "ETH";
+  name: string;
+  available: boolean;
+  markPriceUsd: number;
+  previousPriceUsd: number;
+  priceChangePct: number;
+  buySharePct: number;
+  volumeUsd: number;
+  openInterestUsd: number;
+  fundingRate: number;
+  traderCount: number;
+};
+
 export type BattleResult = {
   mode: "demo" | "live";
   winner: "A" | "B" | "draw";
@@ -59,6 +73,7 @@ export type BattleResult = {
   callsUsed: number;
   tokenA: TokenScore;
   tokenB: TokenScore;
+  benchmarks: MarketBenchmark[];
   summary: BattleEvidence[];
 };
 
@@ -79,10 +94,10 @@ export const DEMO_RESULT: BattleResult = {
     symbol: "AAVE",
     score: 78,
     metrics: [
-      { key: "liquidity", label: "Thanh khoản", score: 22, display: "$153.4M" },
-      { key: "buyPressure", label: "Áp lực mua", score: 18, display: "51.1% buy" },
-      { key: "qualityFlow", label: "Dòng tiền chất lượng", score: 20, display: "+$1.8M" },
-      { key: "breadth", label: "Độ rộng thị trường", score: 18, display: "165.3K holders" },
+      { key: "liquidity", label: "Liquidity", score: 22, display: "$153.4M" },
+      { key: "buyPressure", label: "Buy pressure", score: 18, display: "51.1% buy" },
+      { key: "qualityFlow", label: "Quality flow", score: 20, display: "+$1.8M" },
+      { key: "breadth", label: "Market breadth", score: 18, display: "165.3K holders" },
     ],
     raw: {
       marketCapUsd: 4_690_000_000,
@@ -105,10 +120,10 @@ export const DEMO_RESULT: BattleResult = {
     symbol: "UNI",
     score: 66,
     metrics: [
-      { key: "liquidity", label: "Thanh khoản", score: 19, display: "$98.7M" },
-      { key: "buyPressure", label: "Áp lực mua", score: 15, display: "47.3% buy" },
-      { key: "qualityFlow", label: "Dòng tiền chất lượng", score: 14, display: "-$240K" },
-      { key: "breadth", label: "Độ rộng thị trường", score: 18, display: "381.2K holders" },
+      { key: "liquidity", label: "Liquidity", score: 19, display: "$98.7M" },
+      { key: "buyPressure", label: "Buy pressure", score: 15, display: "47.3% buy" },
+      { key: "qualityFlow", label: "Quality flow", score: 14, display: "-$240K" },
+      { key: "breadth", label: "Market breadth", score: 18, display: "381.2K holders" },
     ],
     raw: {
       marketCapUsd: 5_520_000_000,
@@ -125,11 +140,39 @@ export const DEMO_RESULT: BattleResult = {
       exchangeNetFlowUsd: 125_000,
     },
   },
+  benchmarks: [
+    {
+      symbol: "BTC",
+      name: "Bitcoin",
+      available: true,
+      markPriceUsd: 64_320,
+      previousPriceUsd: 63_180,
+      priceChangePct: 1.8,
+      buySharePct: 53.4,
+      volumeUsd: 2_480_000_000,
+      openInterestUsd: 4_920_000_000,
+      fundingRate: 0.00012,
+      traderCount: 18_420,
+    },
+    {
+      symbol: "ETH",
+      name: "Ethereum",
+      available: true,
+      markPriceUsd: 3_420,
+      previousPriceUsd: 3_365,
+      priceChangePct: 1.6,
+      buySharePct: 51.2,
+      volumeUsd: 1_120_000_000,
+      openInterestUsd: 2_760_000_000,
+      fundingRate: 0.00008,
+      traderCount: 12_860,
+    },
+  ],
   summary: [
-    { label: "AAVE thắng ở dòng tiền", detail: "Smart Trader và Top PnL wallets đang có net flow tích cực hơn trong mẫu minh họa.", tone: "positive" },
-    { label: "Thanh khoản tương đối tốt", detail: "Tỷ lệ liquidity/market cap của AAVE cao hơn UNI trong dữ liệu mẫu.", tone: "positive" },
-    { label: "UNI có holder base rộng", detail: "Số holder cao hơn, nhưng không đủ bù lại buy pressure và quality flow thấp hơn.", tone: "neutral" },
-    { label: "Chưa phải tín hiệu giao dịch", detail: "Điểm số không đo độ sâu lệnh bán thực tế, slippage hoặc rủi ro smart contract.", tone: "negative" },
+    { label: "AAVE wins on quality flow", detail: "Smart Trader and Top PnL wallets show stronger net flow in the sample dataset.", tone: "positive" },
+    { label: "Stronger relative liquidity", detail: "AAVE has a higher liquidity-to-market-cap ratio than UNI in the sample dataset.", tone: "positive" },
+    { label: "UNI has a broader holder base", detail: "More holders, but not enough to offset weaker buy pressure and quality flow.", tone: "neutral" },
+    { label: "Not a trading signal", detail: "The score does not measure executable sell depth, slippage, or smart-contract risk.", tone: "negative" },
   ],
 };
 
