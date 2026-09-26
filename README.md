@@ -2,6 +2,8 @@
 
 Token Battle compares two token contracts on the same chain and selects the stronger token using live Nansen data. It was built for the Nansen Meridian Buildathon.
 
+**Live demo:** https://token-battle-nansen.vybao93.chatgpt.site
+
 ## What it does
 
 Each comparison makes four Nansen API calls:

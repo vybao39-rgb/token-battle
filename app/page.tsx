@@ -9,6 +9,7 @@ import {
   Crown,
   Database,
   ExternalLink,
+  GitFork,
   LoaderCircle,
   ShieldCheck,
   Sparkles,
@@ -328,9 +329,14 @@ export default function Home() {
 
         <footer className="mt-8 flex flex-col gap-3 border-t border-white/8 pt-5 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
           <span>Nansen Meridian Buildathon · Read-only onchain comparison</span>
-          <a className="inline-flex items-center gap-1.5 text-slate-400 transition hover:text-lime-300" href="https://docs.nansen.ai/api/token-god-mode" target="_blank" rel="noreferrer">
-            Nansen API documentation <ExternalLink className="size-3" />
-          </a>
+          <div className="flex flex-wrap items-center gap-4">
+            <a className="inline-flex items-center gap-1.5 text-slate-400 transition hover:text-lime-300" href="https://github.com/vybao39-rgb/token-battle" target="_blank" rel="noreferrer">
+              Public GitHub <GitFork className="size-3" />
+            </a>
+            <a className="inline-flex items-center gap-1.5 text-slate-400 transition hover:text-lime-300" href="https://docs.nansen.ai/api/token-god-mode" target="_blank" rel="noreferrer">
+              Nansen API docs <ExternalLink className="size-3" />
+            </a>
+          </div>
         </footer>
       </div>
     </main>
