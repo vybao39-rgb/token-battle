@@ -1,18 +1,19 @@
 # Token Battle
 
-Token Battle compares two token contracts on the same chain and selects the stronger token using live Nansen data. It was built for the Nansen Meridian Buildathon.
+Token Battle compares two token contracts, each on its own supported network, and selects the stronger token using live Nansen data. It was built for the Nansen Meridian Buildathon.
 
 **Live demo:** https://token-battle-nansen.vercel.app
 
 ## What it does
 
-Each live comparison makes six Nansen API calls:
+Each live comparison makes eight Nansen API calls:
 
 - `POST /api/v1/tgm/token-information` for liquidity, market cap, volume, buy/sell activity, traders, and holders.
 - `POST /api/v1/tgm/flow-intelligence` for Smart Trader, Top PnL, Whale, and Exchange net flows.
-- `POST /api/v1/perp-screener` for separate BTC and ETH 24-hour market benchmarks on Hyperliquid.
+- `POST /api/v1/token-screener` for both tokens' 24-hour and 7-day price performance.
+- `POST /api/v1/perp-screener` for BTC and ETH 24-hour and 7-day market benchmarks on Hyperliquid.
 
-The app calculates a transparent 100-point score:
+The app calculates two transparent 100-point layers:
 
 | Pillar | Weight | Inputs |
 | --- | ---: | --- |
@@ -20,6 +21,10 @@ The app calculates a transparent 100-point score:
 | Buy pressure | 25 | Buy/sell volume and buyer/seller ratio |
 | Quality flow | 25 | Smart Trader, Top PnL, Whale, and Exchange flows |
 | Market breadth | 25 | Holder count and unique trader count |
+
+The **Relative Strength** layer measures the token's excess return against BTC and ETH. It weights 24h performance more heavily: 35% vs BTC (24h), 35% vs ETH (24h), 15% vs BTC (7d), and 15% vs ETH (7d).
+
+The final score combines **65% Onchain Health** and **35% Relative Strength**. The winner is the token with the higher overall score; a difference below two points is treated as a draw.
 
 The score is a comparison model, not investment advice. Displayed liquidity, volume, labels, and flows do not prove executable depth, ownership, or future performance.
 
@@ -69,10 +74,10 @@ Without `NANSEN_API_KEY`, the interface clearly runs in **demo mode** with sampl
 
 ## Suggested 45-second demo script
 
-1. **0–5s:** Show the Live Nansen badge and the selected chain.
-2. **5–15s:** Paste two real contract addresses.
+1. **0–5s:** Show the Live Nansen badge and the two network selectors.
+2. **5–15s:** Select a network and paste a real contract address for each token.
 3. **15–25s:** Run the battle and show the winning token.
-4. **25–38s:** Highlight the four scoring pillars, evidence board, and BTC/ETH benchmark column.
+4. **25–38s:** Highlight Relative Strength, Onchain Health, and the BTC/ETH benchmark strip.
 5. **38–45s:** Show the public GitHub README and the read-only disclaimer.
 
 ## Data notes
