@@ -1,32 +1,27 @@
-# Token Battle
+# Dump Risk Alarm
 
-Token Battle compares two token contracts, each on its own supported network, and selects the stronger token using live Nansen data. It was built for the Nansen Meridian Buildathon.
+Dump Risk Alarm analyzes one token contract with live Nansen data and returns a transparent 0–100 distribution-risk score. It was built for the Nansen Meridian Buildathon.
 
 **Live demo:** https://token-battle-nansen.vercel.app
 
-## What it does
+## What it checks
 
-Each live comparison makes eight Nansen API calls:
-
-- `POST /api/v1/tgm/token-information` for liquidity, market cap, volume, buy/sell activity, traders, and holders.
-- `POST /api/v1/tgm/flow-intelligence` for Smart Trader, Top PnL, Whale, and Exchange net flows.
-- `POST /api/v1/token-screener` for both tokens' 24-hour and 7-day price performance.
-- `POST /api/v1/perp-screener` for BTC and ETH 24-hour and 7-day market benchmarks on Hyperliquid.
-
-The app calculates two transparent 100-point layers:
-
-| Pillar | Weight | Inputs |
+| Signal | Weight | Nansen source |
 | --- | ---: | --- |
-| Liquidity | 25 | Absolute liquidity and liquidity/market-cap ratio |
-| Buy pressure | 25 | Buy/sell volume and buyer/seller ratio |
-| Quality flow | 25 | Smart Trader, Top PnL, Whale, and Exchange flows |
-| Market breadth | 25 | Holder count and unique trader count |
+| Smart Money netflow | 25% | `smart-money/netflow`, `tgm/flows` |
+| Exchange flow | 20% | `tgm/flows` |
+| Top holders and concentration | 20% | `tgm/holders`, `tgm/indicators` |
+| Large transfer anomalies | 15% | `tgm/transfers` |
+| Buyer versus seller pressure | 10% | `tgm/who-bought-sold` |
+| Liquidity and market health | 10% | `tgm/indicators`, `tgm/token-information` |
 
-The **Relative Strength** layer measures the token's excess return against BTC and ETH. It weights 24h performance more heavily: 35% vs BTC (24h), 35% vs ETH (24h), 15% vs BTC (7d), and 15% vs ETH (7d).
+The final score is normalized over the signals that are actually available. Missing endpoint data is shown as unavailable and is never treated as zero risk. Confidence is based on signal coverage.
 
-The final score combines **65% Onchain Health** and **35% Relative Strength**. The winner is the token with the higher overall score; a difference below two points is treated as a draw.
+The 30-day comparison chart calls `tgm/token-ohlcv` for the selected token and BTC on Hyperliquid, then rebases both daily close series to 100. This shows relative performance, not equal prices.
 
-The score is a comparison model, not investment advice. Displayed liquidity, volume, labels, and flows do not prove executable depth, ownership, or future performance.
+## Credit usage
+
+A fresh complete analysis makes 11 API calls and costs up to 23 Nansen credits using the published endpoint prices. The UI reports credits from Nansen response headers. Results are cached server-side for five minutes, and the API route limits each IP to five requests per ten minutes.
 
 ## Run locally
 
@@ -37,52 +32,46 @@ npm install
 cp .env.example .env.local
 ```
 
-Add your Nansen API key to `.env.local`:
+Add your key to `.env.local`:
 
 ```text
 NANSEN_API_KEY=your_key_here
 ```
 
-Start the app:
+Then run:
 
 ```bash
 npm run dev
 ```
 
-Open `http://localhost:5173`.
+Open `http://localhost:5173`. Without `NANSEN_API_KEY`, the server returns a clear configuration error; no sample result is substituted.
 
-Without `NANSEN_API_KEY`, the interface clearly runs in **demo mode** with sample data. With the key configured, the status changes to **Live Nansen** and every comparison uses live API responses.
+## Security and limitations
 
-## Security
+- The Nansen key is read only by the server route and is never included in browser JavaScript or API responses.
+- `.env*` files are ignored; never commit a real key, seed phrase, or private key.
+- The app is read-only and never connects a wallet or requests a signature.
+- Scores depend on Nansen labels, endpoint coverage, lookback windows and available market data.
+- Exchange inflow suggests potential sell-side supply but does not prove a sale.
+- This is a diagnostic research tool, not investment advice or a price prediction.
 
-- The API key is read only by the server route and is never sent to the browser.
-- `.env*` files are ignored by Git; only `.env.example` is committed.
-- The application is read-only. It does not connect a wallet, request signatures, or execute trades.
-- Never commit a real API key, seed phrase, or private key.
+## Buildathon checklist
 
-## Buildathon submission checklist
+- [ ] Create and configure a Nansen API key.
+- [ ] Confirm a live token analysis and record the credits shown.
+- [ ] Keep this GitHub repository public.
+- [ ] Record a 30–60 second demo with real Nansen results.
+- [ ] Post the demo on X, tag `@nansen_ai`, and include the GitHub link.
+- [ ] Submit the Nansen account email, X post URL and GitHub URL through the official form.
+- [ ] Submit only one product per account.
 
-- [ ] Create a Nansen API key at `https://app.nansen.ai/api`.
-- [ ] Configure `NANSEN_API_KEY` and verify the **Live Nansen** badge.
-- [ ] Use the API during the competition window and retain usage screenshots.
-- [ ] Publish this repository publicly on GitHub.
-- [ ] Keep this README and confirm another builder can run the app in under 10 minutes.
-- [ ] Record a 30–60 second screen demo showing two real contracts and live results.
-- [ ] Post the recording on X, tag `@nansen_ai`, and include the public GitHub URL.
-- [ ] Submit the Nansen account email, X post URL, and GitHub URL through the official form.
-- [ ] Submit only once per account.
+## Suggested 45-second demo
 
-## Suggested 45-second demo script
-
-1. **0–5s:** Show the Live Nansen badge and the two network selectors.
-2. **5–15s:** Select a network and paste a real contract address for each token.
-3. **15–25s:** Run the battle and show the winning token.
-4. **25–38s:** Highlight Relative Strength, Onchain Health, and the BTC/ETH benchmark strip.
-5. **38–45s:** Show the public GitHub README and the read-only disclaimer.
-
-## Data notes
-
-Nansen coverage varies by endpoint and chain. Recent flow data may be cached or update at different intervals. Treat missing data as unavailable, not zero, when extending the model for production use.
+1. Show the live-data badge and enter one token contract.
+2. Run the scan and reveal the 0–100 risk verdict.
+3. Open two or three evidence cards: Smart Money, CEX flow and top holders.
+4. Show the token-versus-BTC rebased chart and transfer watch.
+5. End on the public GitHub repository and read-only disclaimer.
 
 ## License
 

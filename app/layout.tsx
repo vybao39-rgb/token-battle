@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Token Battle — Nansen Onchain Comparison",
+  title: "Dump Risk Alarm — Nansen Onchain Intelligence",
   description:
-    "Compare two token contracts using Nansen liquidity, trading activity, holder breadth, and smart-money flow data.",
+    "Analyze token distribution risk with Nansen Smart Money, exchange flows, holders, transfers, market pressure, and BTC-relative strength.",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
