@@ -8,16 +8,48 @@ import type {
 } from "@/lib/dump-risk";
 
 type JsonObject = Record<string, unknown>;
-type ApiResult = { ok: true; payload: JsonObject; credits: number } | { ok: false; error: string; credits: number };
+type ApiResult = {
+  ok: boolean;
+  endpoint: string;
+  request: JsonObject;
+  payload: JsonObject;
+  responseHeaders: Record<string, string>;
+  httpStatus: number | null;
+  error?: string;
+  credits: number;
+};
+
+export type NansenCallArchive = {
+  endpoint: string;
+  request: JsonObject;
+  ok: boolean;
+  httpStatus: number | null;
+  credits: number;
+  responseHeaders: Record<string, string>;
+  response: JsonObject;
+  error?: string;
+};
+
+export type DumpRiskRun = {
+  result: DumpRiskResult;
+  nansenCalls: NansenCallArchive[];
+  sourceCheckedAt: string;
+};
 
 const API_BASE = "https://api.nansen.ai/api/v1";
 const CACHE_TTL_MS = 5 * 60 * 1000;
-const cache = new Map<string, { expiresAt: number; value: DumpRiskResult }>();
+const cache = new Map<string, { expiresAt: number; value: DumpRiskRun }>();
 
 export async function runDumpRiskAnalysis(request: AnalysisRequest, apiKey: string): Promise<DumpRiskResult> {
+  return (await runDumpRiskAnalysisWithArchive(request, apiKey)).result;
+}
+
+export async function runDumpRiskAnalysisWithArchive(request: AnalysisRequest, apiKey: string): Promise<DumpRiskRun> {
   const cacheKey = `${request.chain}:${request.tokenAddress.toLowerCase()}`;
   const hit = cache.get(cacheKey);
-  if (hit && hit.expiresAt > Date.now()) return { ...hit.value, cached: true };
+  if (hit && hit.expiresAt > Date.now()) {
+    return { ...hit.value, result: { ...hit.value.result, cached: true, archived: false } };
+  }
 
   const date = dateRange(30);
   const shortDate = dateRange(7);
@@ -123,10 +155,15 @@ export async function runDumpRiskAnalysis(request: AnalysisRequest, apiKey: stri
     mode: "live", checkedAt: new Date().toISOString(), chain: request.chain, address: request.tokenAddress, token,
     riskScore, verdict, confidence, coveragePct,
     summary: summaryFor(verdict, riskScore, availableSignals), signals, relativeStrength, transfers, endpointStatus,
-    callsUsed: calls.length, creditsUsed, cached: false,
+    callsUsed: calls.length, creditsUsed, cached: false, archived: false,
   };
-  cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, value: result });
-  return result;
+  const value: DumpRiskRun = {
+    result,
+    nansenCalls: calls.map((call) => toArchiveCall(call, apiKey)),
+    sourceCheckedAt: result.checkedAt,
+  };
+  cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, value });
+  return value;
 }
 
 async function callNansen(path: string, body: JsonObject, apiKey: string): Promise<ApiResult> {
@@ -136,11 +173,40 @@ async function callNansen(path: string, body: JsonObject, apiKey: string): Promi
     const response = await fetch(`${API_BASE}${path}`, { method: "POST", headers: { "Content-Type": "application/json", apikey: apiKey }, body: JSON.stringify(body), signal: controller.signal });
     const credits = Number(response.headers.get("x-nansen-credits-used") ?? 0) || 0;
     const payload = (await response.json().catch(() => ({}))) as JsonObject;
-    if (!response.ok) return { ok: false, error: sanitizeError(stringOf(payload.message ?? payload.detail) || `HTTP ${response.status}`), credits };
-    return { ok: true, payload, credits };
+    const responseHeaders = safeResponseHeaders(response.headers);
+    if (!response.ok) return { ok: false, endpoint: path, request: body, payload, responseHeaders, httpStatus: response.status, error: sanitizeError(stringOf(payload.message ?? payload.detail) || `HTTP ${response.status}`), credits };
+    return { ok: true, endpoint: path, request: body, payload, responseHeaders, httpStatus: response.status, credits };
   } catch (error) {
-    return { ok: false, error: error instanceof Error && error.name === "AbortError" ? "Request timed out" : "Request failed", credits: 0 };
+    return { ok: false, endpoint: path, request: body, payload: {}, responseHeaders: {}, httpStatus: null, error: error instanceof Error && error.name === "AbortError" ? "Request timed out" : "Request failed", credits: 0 };
   } finally { clearTimeout(timer); }
+}
+
+function toArchiveCall(result: ApiResult, apiKey: string): NansenCallArchive {
+  return {
+    endpoint: result.endpoint,
+    request: redactSecrets(result.request, apiKey) as JsonObject,
+    ok: result.ok,
+    httpStatus: result.httpStatus,
+    credits: result.credits,
+    responseHeaders: result.responseHeaders,
+    response: redactSecrets(result.payload, apiKey) as JsonObject,
+    ...(result.error ? { error: result.error } : {}),
+  };
+}
+
+function safeResponseHeaders(headers: Headers): Record<string, string> {
+  return Object.fromEntries([...headers.entries()].filter(([key]) => !isSecretKey(key)));
+}
+
+function redactSecrets(value: unknown, apiKey: string): unknown {
+  if (typeof value === "string") return apiKey && value.includes(apiKey) ? value.replaceAll(apiKey, "[redacted]") : value;
+  if (Array.isArray(value)) return value.map((entry) => redactSecrets(entry, apiKey));
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value as JsonObject).map(([key, entry]) => [key, isSecretKey(key) ? "[redacted]" : redactSecrets(entry, apiKey)]));
+}
+
+function isSecretKey(key: string): boolean {
+  return /^(authorization|cookie|set-cookie|api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret|secret)$/i.test(key);
 }
 
 function signal(key: RiskSignal["key"], label: string, endpoint: string, weight: number, riskScore: number | null, headline: string, evidence: string): RiskSignal {
@@ -201,7 +267,7 @@ function indicatorRisk(rows: JsonObject[], name: string): number | null {
   return null;
 }
 
-function buildEndpointStatus(items: Array<[string, ApiResult]>): EndpointStatus[] { return items.map(([endpoint, result]) => ({ endpoint, available: result.ok, note: result.ok ? `Available${result.credits ? ` · ${result.credits} credits` : ""}` : result.error })); }
+function buildEndpointStatus(items: Array<[string, ApiResult]>): EndpointStatus[] { return items.map(([endpoint, result]) => ({ endpoint, available: result.ok, note: result.ok ? `Available${result.credits ? ` · ${result.credits} credits` : ""}` : result.error ?? "Request failed" })); }
 function classifyRisk(score: number): DumpRiskResult["verdict"] { return score >= 75 ? "Strong dump pressure" : score >= 60 ? "Elevated distribution" : score >= 45 ? "Mixed / neutral" : score >= 25 ? "Accumulation" : "Strong accumulation"; }
 function summaryFor(verdict: DumpRiskResult["verdict"], score: number, signals: RiskSignal[]): string { const strongest = [...signals].sort((a, b) => (b.riskScore ?? 0) - (a.riskScore ?? 0))[0]; return `${verdict} at ${score}/100. The strongest observed risk is ${strongest.label.toLowerCase()}: ${strongest.headline.toLowerCase()}.`; }
 function rowsOf(payload: JsonObject): JsonObject[] { const data = payload.data; if (Array.isArray(data)) return data.map(asObject); if (Array.isArray(asObject(data).data)) return (asObject(data).data as unknown[]).map(asObject); if (Array.isArray(payload.results)) return payload.results.map(asObject); return []; }

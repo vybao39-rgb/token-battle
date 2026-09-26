@@ -88,6 +88,7 @@ export type DumpRiskResult = {
   callsUsed: number;
   creditsUsed: number;
   cached: boolean;
+  archived: boolean;
 };
 
 export function formatUsd(value: number | null): string {

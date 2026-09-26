@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { CHAIN_IDS } from "@/lib/dump-risk";
-import { runDumpRiskAnalysis } from "@/lib/nansen";
+import { saveAnalysisArchive } from "@/lib/analysis-archive";
+import { runDumpRiskAnalysisWithArchive } from "@/lib/nansen";
+
+export const runtime = "nodejs";
 
 const requests = new Map<string, number[]>();
 const WINDOW_MS = 10 * 60 * 1000;
@@ -29,7 +32,15 @@ export async function POST(request: Request) {
     if (!parsed.success) return NextResponse.json({ message: parsed.error.issues[0]?.message || "Invalid input." }, { status: 400 });
     const apiKey = process.env.NANSEN_API_KEY?.trim();
     if (!apiKey) return NextResponse.json({ message: "NANSEN_API_KEY is not configured on the server." }, { status: 503 });
-    return NextResponse.json(await runDumpRiskAnalysis(parsed.data, apiKey));
+    const run = await runDumpRiskAnalysisWithArchive(parsed.data, apiKey);
+    let archived = false;
+    try {
+      await saveAnalysisArchive(parsed.data, run);
+      archived = true;
+    } catch (archiveError) {
+      console.error("Analysis archive write failed:", archiveError instanceof Error ? archiveError.message : "Unknown storage error");
+    }
+    return NextResponse.json({ ...run.result, archived });
   } catch (error) {
     const message = error instanceof Error ? error.message : "The analysis could not be completed.";
     return NextResponse.json({ message }, { status: /credit|payment|forbidden/i.test(message) ? 402 : 502 });

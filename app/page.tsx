@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import Link from "next/link";
 import {
   Activity, AlertTriangle, ArrowDownToLine, ArrowUpRight, BarChart3, CheckCircle2,
-  ChevronRight, CircleHelp, Database, ExternalLink, GitFork, LoaderCircle, Radar,
+  ChevronRight, CircleHelp, Database, ExternalLink, GitFork, LoaderCircle, LockKeyhole, Radar,
   Search, ShieldAlert, ShieldCheck, Sparkles, Users, Waves,
 } from "lucide-react";
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
@@ -57,7 +58,7 @@ export default function Page() {
             <span className="brand-icon"><Radar /></span>
             <span><b>DUMP RISK</b><small>ALARM</small></span>
           </a>
-          <div className="live-pill"><span /> Live Nansen data</div>
+          <div className="topbar-actions"><Link href="/admin"><LockKeyhole /> Admin archive</Link><div className="live-pill"><span /> Live Nansen data</div></div>
         </header>
 
         <section id="top" className="command-card">
@@ -167,7 +168,7 @@ function Results({ result }: { result: DumpRiskResult }) {
 
       <section className="method-strip"><div><Waves /><p><b>How to read the score</b><span>0 means stronger accumulation evidence; 100 means stronger distribution risk. It is a weighted diagnostic, not a price prediction.</span></p></div><div><Users /><p><b>Label-dependent evidence</b><span>Smart Money, whale and exchange conclusions depend on Nansen labels and the selected time window.</span></p></div></section>
 
-      <div className="result-meta">Checked {formatCheckedAt(result.checkedAt)} · {result.cached ? "served from a five-minute cache" : `${result.creditsUsed || "reported"} Nansen credits used`}</div>
+      <div className="result-meta">Checked {formatCheckedAt(result.checkedAt)} · {result.cached ? "served from a five-minute cache" : `${result.creditsUsed || "reported"} Nansen credits used`} · {result.archived ? "saved to private admin archive" : "private archive unavailable"}</div>
     </div>
   );
 }

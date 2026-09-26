@@ -38,6 +38,18 @@ Add your key to `.env.local`:
 NANSEN_API_KEY=your_key_here
 ```
 
+To save every analysis privately, connect a **Private Vercel Blob** store and configure these server-only variables:
+
+```text
+ADMIN_USERNAME=your_admin_username
+ADMIN_PASSWORD=a_long_unique_password
+ADMIN_SESSION_SECRET=a_random_secret_of_at_least_32_bytes
+```
+
+Vercel supplies Blob credentials automatically when the private store is connected to the project. For local development, pull the linked project environment or set `BLOB_READ_WRITE_TOKEN` in `.env.local`. Never use a `NEXT_PUBLIC_` prefix for these values.
+
+The private archive is available at `/admin`. Each search creates one immutable JSON record containing the request, calculated result, safe response headers, and raw JSON returned by every Nansen endpoint. API keys, authorization headers, cookies, tokens and secrets are redacted. Cached searches are recorded too and point to the original Nansen snapshot time. Only an authenticated administrator can list, view, download or export records. The export endpoint produces newline-delimited JSON (`.jsonl`).
+
 Then run:
 
 ```bash
@@ -49,6 +61,8 @@ Open `http://localhost:5173`. Without `NANSEN_API_KEY`, the server returns a cle
 ## Security and limitations
 
 - The Nansen key is read only by the server route and is never included in browser JavaScript or API responses.
+- Private archive files require Vercel Blob authentication and are served only through administrator-protected routes.
+- The administrator session uses an HTTP-only, Secure, SameSite=Strict signed cookie and expires after eight hours.
 - `.env*` files are ignored; never commit a real key, seed phrase, or private key.
 - The app is read-only and never connects a wallet or requests a signature.
 - Scores depend on Nansen labels, endpoint coverage, lookback windows and available market data.
