@@ -22,7 +22,7 @@ export async function runDumpRiskAnalysis(request: AnalysisRequest, apiKey: stri
   const date = dateRange(30);
   const shortDate = dateRange(7);
   const calls = await Promise.all([
-    callNansen("/tgm/token-information", { chain: request.chain, token_address: request.tokenAddress }, apiKey),
+    callNansen("/tgm/token-information", { chain: request.chain, token_address: request.tokenAddress, timeframe: "1d" }, apiKey),
     callNansen("/tgm/flows", { chain: request.chain, token_address: request.tokenAddress, date: shortDate, label: "smart_money" }, apiKey),
     callNansen("/tgm/flows", { chain: request.chain, token_address: request.tokenAddress, date: shortDate, label: "exchange" }, apiKey),
     callNansen("/tgm/transfers", {
@@ -33,8 +33,8 @@ export async function runDumpRiskAnalysis(request: AnalysisRequest, apiKey: stri
       pagination: { page: 1, per_page: 25 },
       order_by: [{ field: "transfer_value_usd", direction: "DESC" }],
     }, apiKey),
-    callNansen("/tgm/who-bought-sold", { chain: request.chain, token_address: request.tokenAddress, date: shortDate, buy_or_sell: "BUY", pagination: { page: 1, per_page: 25 }, order_by: [{ field: "volume_usd", direction: "DESC" }] }, apiKey),
-    callNansen("/tgm/who-bought-sold", { chain: request.chain, token_address: request.tokenAddress, date: shortDate, buy_or_sell: "SELL", pagination: { page: 1, per_page: 25 }, order_by: [{ field: "volume_usd", direction: "DESC" }] }, apiKey),
+    callNansen("/tgm/who-bought-sold", { chain: request.chain, token_address: request.tokenAddress, date: shortDate, buy_or_sell: "BUY", pagination: { page: 1, per_page: 25 }, order_by: [{ field: "bought_volume_usd", direction: "DESC" }] }, apiKey),
+    callNansen("/tgm/who-bought-sold", { chain: request.chain, token_address: request.tokenAddress, date: shortDate, buy_or_sell: "SELL", pagination: { page: 1, per_page: 25 }, order_by: [{ field: "sold_volume_usd", direction: "DESC" }] }, apiKey),
     callNansen("/tgm/holders", { chain: request.chain, token_address: request.tokenAddress, label_type: "all_holders", pagination: { page: 1, per_page: 25 }, order_by: [{ field: "ownership_percentage", direction: "DESC" }] }, apiKey),
     callNansen("/smart-money/netflow", { chains: [request.chain], filters: { token_address: request.tokenAddress, include_stablecoins: true, include_native_tokens: true }, pagination: { page: 1, per_page: 10 } }, apiKey),
     callNansen("/tgm/indicators", { chain: request.chain, token_address: request.tokenAddress }, apiKey),
@@ -65,12 +65,14 @@ export async function runDumpRiskAnalysis(request: AnalysisRequest, apiKey: stri
   const smartNetRows = smartNetflowCall.ok ? rowsOf(smartNetflowCall.payload) : [];
   const indicators = indicatorsCall.ok ? indicatorRows(indicatorsCall.payload) : [];
 
-  const smartFlow = sum(smartRows, "value_usd");
-  const smartNet = smartNetRows.length ? numberOf(smartNetRows[0].net_flow_7d ?? smartNetRows[0].net_flow_24h) : null;
-  const smartValue = smartNet ?? (smartRows.length ? smartFlow : null);
+  const smartFlow = holdingsChangeUsd(smartRows);
+  const smartNet = smartNetRows.length ? numberOf(smartNetRows[0].net_flow_7d_usd ?? smartNetRows[0].net_flow_24h_usd) : null;
+  const smartValue = smartNet ?? smartFlow;
   const smartRisk = smartValue === null ? null : clamp(50 - 45 * Math.tanh(smartValue / scale(token.volumeUsd, token.marketCapUsd)));
 
-  const exchangeFlow = exchangeRows.length ? sum(exchangeRows, "value_usd") : null;
+  const exchangeFlow = exchangeRows.length ? exchangeRows
+    .filter((row) => row.is_complete !== false)
+    .reduce((total, row) => total + (numberOf(row.total_inflows_cex) - numberOf(row.total_outflows_cex)) * numberOf(row.price_usd), 0) : null;
   const exchangeRisk = exchangeFlow === null ? null : clamp(50 + 45 * Math.tanh(exchangeFlow / scale(token.volumeUsd, token.marketCapUsd)));
 
   const ownerships = holderRows.map((row) => normalizePct(numberOf(row.ownership_percentage))).filter((value) => value > 0);
@@ -208,7 +210,13 @@ function asObject(value: unknown): JsonObject { return value && typeof value ===
 function stringOf(value: unknown): string { return typeof value === "string" ? value : ""; }
 function numberOf(value: unknown): number { const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : 0; return Number.isFinite(parsed) ? parsed : 0; }
 function nullableNumber(value: unknown): number | null { if (value === null || value === undefined || value === "") return null; const parsed = numberOf(value); return Number.isFinite(parsed) ? parsed : null; }
-function sum(rows: JsonObject[], field: string): number { return rows.reduce((total, row) => total + numberOf(row[field]), 0); }
+function holdingsChangeUsd(rows: JsonObject[]): number | null {
+  const sorted = [...rows].filter((row) => row.is_complete !== false).sort((a, b) => stringOf(a.date).localeCompare(stringOf(b.date)));
+  if (sorted.length < 2) return null;
+  const first = sorted[0];
+  const last = sorted.at(-1)!;
+  return (numberOf(last.token_amount) - numberOf(first.token_amount)) * numberOf(last.price_usd);
+}
 function sumFlexible(rows: JsonObject[], fields: string[]): number { return rows.reduce((total, row) => total + numberOf(fields.map((field) => row[field]).find((value) => value !== undefined)), 0); }
 function normalizePct(value: number): number { return value <= 1 ? value * 100 : value; }
 function safeRatio(numerator: number, denominator: number): number { return denominator > 0 ? numerator / denominator : 0.5; }
