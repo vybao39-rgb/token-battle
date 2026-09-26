@@ -152,7 +152,10 @@ function Results({ result }: { result: DumpRiskResult }) {
       <div className="lower-grid">
         <section className="section-card transfer-section">
           <SectionHeading eyebrow="Transfer watch" title="Largest recent movements" aside={`${result.transfers.length} observations`} />
-          {result.transfers.length ? <div className="transfer-list">{result.transfers.slice(0, 6).map((transfer, index) => <div className="transfer-row" key={`${transfer.timestamp}-${index}`}><span className={transfer.toExchange ? "transfer-icon danger" : "transfer-icon"}>{transfer.toExchange ? <ArrowDownToLine /> : <ArrowUpRight />}</span><div><b>{truncateLabel(transfer.from)} <i>→</i> {truncateLabel(transfer.to)}</b><small>{transfer.transactionType} · {formatDate(transfer.timestamp)}</small></div><strong>{formatUsd(transfer.valueUsd)}</strong>{transfer.toExchange ? <Badge className="cex-badge">To CEX</Badge> : <Badge variant="outline">Transfer</Badge>}</div>)}</div> : <div className="compact-empty">No usable transfer rows were returned.</div>}
+          {result.transfers.length ? <div className="transfer-list">{result.transfers.slice(0, 6).map((transfer, index) => {
+            const transactionUrl = explorerTransactionUrl(result.chain, transfer.transactionHash);
+            return <div className="transfer-row" key={`${transfer.transactionHash || transfer.timestamp}-${index}`}><span className={transfer.toExchange ? "transfer-icon danger" : "transfer-icon"}>{transfer.toExchange ? <ArrowDownToLine /> : <ArrowUpRight />}</span><div><b>{truncateLabel(transfer.from)} <i>→</i> {truncateLabel(transfer.to)}</b><small>{transfer.transactionType} · {formatDate(transfer.timestamp)}</small></div><strong>{formatUsd(transfer.valueUsd)}</strong><div className="transfer-actions">{transfer.toExchange ? <Badge className="cex-badge">To CEX</Badge> : <Badge variant="outline">Transfer</Badge>}{transactionUrl ? <a href={transactionUrl} target="_blank" rel="noreferrer" aria-label={`View transaction ${shortAddress(transfer.transactionHash)}`}>View tx <ExternalLink /></a> : <span>No tx link</span>}</div></div>;
+          })}</div> : <div className="compact-empty">No usable transfer rows were returned.</div>}
         </section>
 
         <section className="section-card audit-section">
@@ -189,3 +192,12 @@ function truncateLabel(value: string) { return value.length > 22 ? `${value.slic
 function formatChartDate(value: string) { const date = new Date(`${value}T00:00:00Z`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(date); }
 function formatDate(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "Date unavailable" : new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date); }
 function formatCheckedAt(value: string) { const date = new Date(value); return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh", timeZoneName: "short" }).format(date); }
+function explorerTransactionUrl(chain: ChainId, hash: string) {
+  if (!hash) return "";
+  const explorers: Record<ChainId, string> = {
+    ethereum: "https://etherscan.io/tx/", solana: "https://solscan.io/tx/", base: "https://basescan.org/tx/",
+    bnb: "https://bscscan.com/tx/", arbitrum: "https://arbiscan.io/tx/", polygon: "https://polygonscan.com/tx/",
+    avalanche: "https://snowtrace.io/tx/", optimism: "https://optimistic.etherscan.io/tx/",
+  };
+  return `${explorers[chain]}${encodeURIComponent(hash)}`;
+}

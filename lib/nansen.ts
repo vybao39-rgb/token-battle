@@ -180,7 +180,7 @@ function seriesReturn(rows: JsonObject[]): number | null {
 function toTransfer(row: JsonObject): TransferEvidence {
   const to = stringOf(row.to_label ?? row.to_address_label ?? row.to_address) || "Unknown";
   const transactionType = stringOf(row.transaction_type ?? row.transfer_type) || "Transfer";
-  return { timestamp: stringOf(row.block_timestamp ?? row.timestamp ?? row.date), from: stringOf(row.from_label ?? row.from_address_label ?? row.from_address) || "Unknown", to, valueUsd: numberOf(row.transfer_value_usd ?? row.value_usd), amount: numberOf(row.token_amount ?? row.amount), transactionType, toExchange: /cex|exchange|binance|coinbase|kraken|okx|bybit|kucoin|gate/i.test(`${to} ${transactionType}`) };
+  return { timestamp: stringOf(row.block_timestamp ?? row.timestamp ?? row.date), transactionHash: stringOf(row.transaction_hash ?? row.tx_hash), from: stringOf(row.from_label ?? row.from_address_label ?? row.from_address) || "Unknown", to, valueUsd: numberOf(row.transfer_value_usd ?? row.value_usd), amount: numberOf(row.transfer_amount ?? row.token_amount ?? row.amount), transactionType, toExchange: /cex|exchange|binance|coinbase|kraken|okx|bybit|kucoin|gate/i.test(`${to} ${transactionType}`) };
 }
 
 function indicatorRows(payload: JsonObject): JsonObject[] {

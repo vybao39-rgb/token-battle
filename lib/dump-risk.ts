@@ -39,6 +39,7 @@ export type RelativePoint = {
 
 export type TransferEvidence = {
   timestamp: string;
+  transactionHash: string;
   from: string;
   to: string;
   valueUsd: number;
