@@ -4,6 +4,8 @@ Dump Risk Alarm analyzes one token contract with live Nansen data and returns a 
 
 **Live demo:** https://token-battle-nansen.vercel.app
 
+Paste a contract address once. The app automatically detects which supported networks contain that token, shows a network table, and lets the user analyze each network independently. Completed results are saved in the browser under `contract + network`, so they can be reopened without spending credits again.
+
 ## What it checks
 
 | Signal | Weight | Nansen source |
@@ -21,7 +23,7 @@ The 30-day comparison chart calls `tgm/token-ohlcv` for the selected token and B
 
 ## Credit usage
 
-A fresh complete analysis makes 11 API calls and costs up to 23 Nansen credits using the published endpoint prices. The UI reports credits from Nansen response headers. Results are cached server-side for five minutes, and the API route limits each IP to five requests per ten minutes.
+Network discovery uses fixed public-chain RPCs plus DEX Screener and consumes no Nansen credits. A fresh complete analysis of one selected network makes 11 API calls and costs up to 23 Nansen credits using the published endpoint prices. The UI reports credits from Nansen response headers. Results are cached server-side for five minutes, and the API route limits each IP to five requests per ten minutes. Browser-saved results are device-local and can be reopened after the server cache expires without another API request.
 
 ## Run locally
 

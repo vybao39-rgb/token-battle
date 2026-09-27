@@ -42,7 +42,7 @@ export type TokenIdentityLookupArchive = {
   endpoint: string;
   ok: boolean;
   httpStatus: number | null;
-  selected: { name: string; symbol: string; logoUrl: string } | null;
+  selected: { name: string; symbol: string; logoUrl: string; liquidityUsd: number | null } | null;
   response: unknown;
   error?: string;
 };
@@ -90,6 +90,8 @@ export async function runDumpRiskAnalysisWithArchive(request: AnalysisRequest, a
   const info = infoCall.ok ? unwrapObject(infoCall.payload) : {};
   const details = asObject(info.token_details);
   const spot = asObject(info.spot_metrics);
+  const indicatorData = indicatorsCall.ok ? unwrapObject(indicatorsCall.payload) : {};
+  const indicatorTokenInfo = asObject(indicatorData.token_info);
   const identityLookup = await identityLookupPromise;
   const fallbackIdentity = identityLookup.selected;
   const nansenName = stringOf(info.name).trim() || stringOf(details.name).trim();
@@ -100,8 +102,8 @@ export async function runDumpRiskAnalysisWithArchive(request: AnalysisRequest, a
     symbol: nansenSymbol || fallbackIdentity?.symbol || shortAddress(request.tokenAddress),
     logoUrl: stringOf(info.logo).trim() || stringOf(info.logo_url).trim() || stringOf(details.logo_url).trim() || fallbackIdentity?.logoUrl || "",
     identitySource: usedIdentityFallback ? "dexscreener" as const : nansenName || nansenSymbol ? "nansen" as const : "contract" as const,
-    marketCapUsd: nullableNumber(details.market_cap_usd ?? info.market_cap_usd),
-    liquidityUsd: nullableNumber(spot.liquidity_usd ?? info.liquidity_usd),
+    marketCapUsd: firstPositiveNumber(details.market_cap_usd, info.market_cap_usd, indicatorTokenInfo.market_cap_usd),
+    liquidityUsd: firstPositiveNumber(spot.liquidity_usd, info.liquidity_usd, fallbackIdentity?.liquidityUsd),
     volumeUsd: nullableNumber(spot.volume_total_usd ?? spot.volume_usd ?? info.volume_usd),
     holders: nullableNumber(spot.total_holders ?? info.holders_count),
   };
@@ -143,10 +145,20 @@ export async function runDumpRiskAnalysisWithArchive(request: AnalysisRequest, a
 
   const liquidityIndicator = indicatorRisk(indicators, "liquidity-risk");
   const btcReflexivity = indicatorRisk(indicators, "btc-reflexivity");
+  const liquidityIndicatorRow = findIndicator(indicators, "liquidity-risk");
+  const btcReflexivityRow = findIndicator(indicators, "btc-reflexivity");
   const liquidityRatio = token.marketCapUsd && token.liquidityUsd !== null ? token.liquidityUsd / token.marketCapUsd : null;
   const ratioRisk = liquidityRatio === null ? null : clamp(80 - 500 * liquidityRatio);
   const healthInputs = [liquidityIndicator, btcReflexivity, ratioRisk].filter((value): value is number => value !== null);
   const marketHealthRisk = healthInputs.length ? average(healthInputs) : null;
+  const marketHealthHeadline = liquidityRatio !== null
+    ? `${(liquidityRatio * 100).toFixed(2)}% liquidity / market cap`
+    : liquidityIndicatorRow
+      ? `Nansen liquidity risk: ${stringOf(liquidityIndicatorRow.score || "available")}`
+      : "Liquidity ratio unavailable";
+  const marketHealthEvidence = healthInputs.length
+    ? [indicatorSummary("Liquidity risk", liquidityIndicatorRow), indicatorSummary("BTC reflexivity", btcReflexivityRow), liquidityRatio === null ? "Direct liquidity depth unavailable" : `${formatUsd(token.liquidityUsd!)} displayed liquidity`].filter(Boolean).join(" · ")
+    : "No usable liquidity or indicator observation was returned.";
 
   const signals: RiskSignal[] = [
     signal("smartMoney", "Smart Money netflow", "smart-money/netflow + tgm/flows", 25, smartRisk, smartValue === null ? "No usable netflow returned" : `${signedUsd(smartValue)} netflow`, smartValue === null ? "The endpoint did not return a usable Smart Money observation." : smartValue < 0 ? "Negative netflow indicates labeled Smart Money is distributing." : "Positive netflow indicates labeled Smart Money is accumulating."),
@@ -154,7 +166,7 @@ export async function runDumpRiskAnalysisWithArchive(request: AnalysisRequest, a
     signal("holders", "Top holders & concentration", "tgm/holders + tgm/indicators", 20, holderRisk, holderRows.length ? `Top 10 hold ${top10Pct.toFixed(1)}%` : "Holder concentration unavailable", holderRows.length ? `${sellingHolders} of ${holderRows.length} sampled top holders reduced balances in the selected lookback.` : "The holder endpoint returned no usable rows; indicator fallback was used when available."),
     signal("transfers", "Large transfer anomaly", "tgm/transfers", 15, transferRisk, transferRows.length ? `${cexTransfers.length} large CEX-bound transfers` : "Large transfers unavailable", transferRows.length ? `Largest detected CEX-bound transfer: ${formatUsd(maxCexTransfer)}.` : "No usable transfer rows were returned."),
     signal("marketPressure", "Buyer vs seller pressure", "tgm/who-bought-sold", 10, marketPressureRisk, pressureAvailable ? `${formatUsd(buyVolume)} bought vs ${formatUsd(sellVolume)} sold` : "Buyer/seller data unavailable", pressureAvailable ? `${buyerRows.length} sampled buyers versus ${sellerRows.length} sampled sellers.` : "The endpoint returned no usable buyer or seller rows."),
-    signal("marketHealth", "Liquidity & market health", "tgm/indicators + tgm/token-information", 10, marketHealthRisk, liquidityRatio === null ? "Liquidity ratio unavailable" : `${(liquidityRatio * 100).toFixed(2)}% liquidity / market cap`, healthInputs.length ? "Combines Nansen liquidity and BTC-reflexivity risk indicators with displayed liquidity depth." : "No usable liquidity or indicator observation was returned."),
+    signal("marketHealth", "Liquidity & market health", "tgm/indicators + tgm/token-information", 10, marketHealthRisk, marketHealthHeadline, marketHealthEvidence),
   ];
 
   const availableSignals = signals.filter((item) => item.available && item.riskScore !== null);
@@ -227,7 +239,7 @@ async function lookupTokenIdentity(request: AnalysisRequest): Promise<TokenIdent
       endpoint,
       ok: true,
       httpStatus: response.status,
-      selected: best ? { name: best.name, symbol: best.symbol, logoUrl: best.logoUrl } : null,
+      selected: best ? { name: best.name, symbol: best.symbol, logoUrl: best.logoUrl, liquidityUsd: best.liquidityUsd > 0 ? best.liquidityUsd : null } : null,
       response: payload,
     };
   } catch (error) {
@@ -334,16 +346,28 @@ function indicatorRows(payload: JsonObject): JsonObject[] {
   return groups.flatMap((group) => Array.isArray(group) ? group.map(asObject) : Object.entries(asObject(group)).map(([key, value]) => ({ key, ...asObject(value) })));
 }
 
+function findIndicator(rows: JsonObject[], name: string): JsonObject | null {
+  return rows.find((item) => stringOf(item.indicator_type ?? item.indicator ?? item.name ?? item.key).toLowerCase() === name) ?? null;
+}
+
 function indicatorRisk(rows: JsonObject[], name: string): number | null {
-  const row = rows.find((item) => stringOf(item.indicator ?? item.name ?? item.key).toLowerCase() === name);
+  const row = findIndicator(rows, name);
   if (!row) return null;
-  const percentile = nullableNumber(row.signal_percentile);
-  if (percentile !== null) return percentile <= 1 ? percentile * 100 : percentile;
-  const score = stringOf(row.score ?? row.signal).toLowerCase();
+  const score = stringOf(row.score).toLowerCase();
   if (/high|bearish/.test(score)) return 80;
   if (/low|bullish/.test(score)) return 20;
   if (/medium|neutral/.test(score)) return 50;
+  const percentile = nullableNumber(row.signal_percentile);
+  if (percentile !== null) return clamp(percentile <= 1 ? percentile * 100 : percentile);
   return null;
+}
+
+function indicatorSummary(label: string, row: JsonObject | null): string {
+  if (!row) return "";
+  const score = stringOf(row.score).trim();
+  const percentile = nullableNumber(row.signal_percentile);
+  const percentileLabel = percentile === null ? "" : ` · percentile ${percentile.toFixed(0)}`;
+  return `${label}: ${score || "available"}${percentileLabel}`;
 }
 
 function buildEndpointStatus(items: Array<[string, ApiResult]>): EndpointStatus[] { return items.map(([endpoint, result]) => ({ endpoint, available: result.ok, note: result.ok ? `Available${result.credits ? ` · ${result.credits} credits` : ""}` : result.error ?? "Request failed" })); }
@@ -355,6 +379,13 @@ function asObject(value: unknown): JsonObject { return value && typeof value ===
 function stringOf(value: unknown): string { return typeof value === "string" ? value : ""; }
 function numberOf(value: unknown): number { const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : 0; return Number.isFinite(parsed) ? parsed : 0; }
 function nullableNumber(value: unknown): number | null { if (value === null || value === undefined || value === "") return null; const parsed = numberOf(value); return Number.isFinite(parsed) ? parsed : null; }
+function firstPositiveNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    const parsed = nullableNumber(value);
+    if (parsed !== null && parsed > 0) return parsed;
+  }
+  return null;
+}
 function holdingsChangeUsd(rows: JsonObject[]): number | null {
   const sorted = [...rows].filter((row) => row.is_complete !== false).sort((a, b) => stringOf(a.date).localeCompare(stringOf(b.date)));
   if (sorted.length < 2) return null;

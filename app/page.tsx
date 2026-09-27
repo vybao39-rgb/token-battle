@@ -1,19 +1,19 @@
 "use client";
 
-import { useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import {
   Activity, AlertTriangle, ArrowDownToLine, ArrowUpRight, BarChart3, CheckCircle2,
-  ChevronRight, CircleHelp, Database, ExternalLink, GitFork, LoaderCircle, LockKeyhole, Radar,
-  Search, ShieldAlert, ShieldCheck, Sparkles, Users, Waves,
+  ChevronRight, CircleHelp, Clock3, Database, ExternalLink, Eye, GitFork, Layers3,
+  LoaderCircle, LockKeyhole, Network, Radar, Search, ShieldAlert, ShieldCheck, Sparkles, Users, Waves,
 } from "lucide-react";
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatNumber, formatUsd, type ChainId, type DumpRiskResult, type RiskSignal } from "@/lib/dump-risk";
+import type { TokenNetwork, TokenNetworkDiscovery } from "@/lib/token-networks";
 
 const CHAINS: Array<{ value: ChainId; label: string }> = [
   { value: "ethereum", label: "Ethereum" }, { value: "solana", label: "Solana" },
@@ -23,31 +23,118 @@ const CHAINS: Array<{ value: ChainId; label: string }> = [
 ];
 
 const DEFAULT_ADDRESS = "0x7fc66500c84a76ad7e9c93437bfc5ac33e2ddae9";
+const SAVED_ANALYSES_KEY = "dump-risk-saved-analyses-v1";
+const MAX_SAVED_ANALYSES = 40;
 const chartConfig = {
   token: { label: "Token", color: "#35e6b0" },
   btc: { label: "BTC", color: "#f7a83b" },
 } satisfies ChartConfig;
 
-export default function Page() {
-  const [chain, setChain] = useState<ChainId>("ethereum");
-  const [tokenAddress, setTokenAddress] = useState(DEFAULT_ADDRESS);
-  const [result, setResult] = useState<DumpRiskResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+type SavedAnalysis = {
+  savedAt: string;
+  result: DumpRiskResult;
+};
 
-  async function analyze(event: FormEvent) {
+export default function Page() {
+  const [tokenAddress, setTokenAddress] = useState(DEFAULT_ADDRESS);
+  const [lookupAddress, setLookupAddress] = useState("");
+  const [networks, setNetworks] = useState<TokenNetwork[]>([]);
+  const [selectedChain, setSelectedChain] = useState<ChainId | null>(null);
+  const [result, setResult] = useState<DumpRiskResult | null>(null);
+  const [discovering, setDiscovering] = useState(false);
+  const [analyzingChain, setAnalyzingChain] = useState<ChainId | null>(null);
+  const [savedAnalyses, setSavedAnalyses] = useState<Record<string, SavedAnalysis>>({});
+  const [error, setError] = useState("");
+  const [storageWarning, setStorageWarning] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(SAVED_ANALYSES_KEY) || "{}") as Record<string, SavedAnalysis>;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) setSavedAnalyses(parsed);
+      } catch {
+        setStorageWarning("Saved analyses could not be loaded from this browser.");
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  async function findNetworks(event: FormEvent) {
     event.preventDefault();
     setError("");
-    setLoading(true);
+    setStorageWarning("");
+    setDiscovering(true);
+    setResult(null);
+    setSelectedChain(null);
     try {
-      const response = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chain, tokenAddress: tokenAddress.trim() }) });
+      const address = tokenAddress.trim();
+      const response = await fetch("/api/networks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tokenAddress: address }) });
+      const payload = await response.json() as { message?: string } & Partial<TokenNetworkDiscovery>;
+      if (!response.ok) throw new Error(payload.message || "Network lookup failed.");
+      const discovered = payload.networks ?? [];
+      const savedRows = savedNetworksForAddress(address, savedAnalyses)
+        .filter((saved) => !discovered.some((item) => item.chain === saved.chain));
+      setNetworks(sortNetworks([...discovered, ...savedRows]));
+      setLookupAddress(address);
+      if (!discovered.length && !savedRows.length) throw new Error("No supported token contract was found on the available networks.");
+    } catch (cause) {
+      setNetworks([]);
+      setError(cause instanceof Error ? cause.message : "Network lookup failed.");
+    } finally { setDiscovering(false); }
+  }
+
+  async function selectNetwork(chain: ChainId) {
+    setError("");
+    setStorageWarning("");
+    setSelectedChain(chain);
+    const address = lookupAddress || tokenAddress.trim();
+    const existing = savedAnalyses[savedAnalysisKey(chain, address)];
+    if (existing) {
+      setResult(existing.result);
+      return;
+    }
+    setResult(null);
+    setAnalyzingChain(chain);
+    try {
+      const response = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chain, tokenAddress: address }) });
       const payload = await response.json() as { message?: string } & Partial<DumpRiskResult>;
       if (!response.ok) throw new Error(payload.message || "Analysis failed.");
-      setResult(payload as DumpRiskResult);
+      const analyzed = payload as DumpRiskResult;
+      const record = { savedAt: new Date().toISOString(), result: analyzed } satisfies SavedAnalysis;
+      const next = limitSavedAnalyses({ ...savedAnalyses, [savedAnalysisKey(chain, address)]: record });
+      setSavedAnalyses(next);
+      setResult(analyzed);
+      setNetworks((current) => current.map((item) => item.chain === chain ? { ...item, name: analyzed.token.name, symbol: analyzed.token.symbol } : item));
+      try { localStorage.setItem(SAVED_ANALYSES_KEY, JSON.stringify(next)); }
+      catch { setStorageWarning("Analysis completed, but this browser could not save it for later."); }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Analysis failed.");
-    } finally { setLoading(false); }
+    } finally { setAnalyzingChain(null); }
   }
+
+  function openSavedAnalysis(record: SavedAnalysis) {
+    const address = record.result.address;
+    setTokenAddress(address);
+    setLookupAddress(address);
+    setNetworks(sortNetworks(savedNetworksForAddress(address, savedAnalyses)));
+    setSelectedChain(record.result.chain);
+    setResult(record.result);
+    setError("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function changeAddress(value: string) {
+    setTokenAddress(value);
+    setError("");
+    if (normalizeAddress(value) !== normalizeAddress(lookupAddress)) {
+      setNetworks([]);
+      setSelectedChain(null);
+      setResult(null);
+    }
+  }
+
+  const savedEntries = Object.values(savedAnalyses).sort((left, right) => right.savedAt.localeCompare(left.savedAt));
+  const loading = discovering || analyzingChain !== null;
 
   return (
     <main className="app-shell">
@@ -67,27 +154,24 @@ export default function Page() {
             <h1>Is this token being <em>dumped</em> or accumulated?</h1>
             <p>One contract. Six evidence layers. A transparent 0–100 dump-risk score with relative strength against Bitcoin.</p>
           </div>
-          <form onSubmit={analyze} className="search-console">
-            <label>
-              <span>Network</span>
-              <Select value={chain} onValueChange={(value) => setChain(value as ChainId)}>
-                <SelectTrigger aria-label="Network" className="network-select"><SelectValue /></SelectTrigger>
-                <SelectContent className="border-slate-700 bg-[#111722] text-white">{CHAINS.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
-              </Select>
-            </label>
+          <form onSubmit={findNetworks} className="search-console">
             <label className="address-field">
               <span>Token contract</span>
-              <div className="address-input"><Search /><Input aria-label="Token contract address" value={tokenAddress} onChange={(event) => setTokenAddress(event.target.value)} spellCheck={false} autoComplete="off" placeholder="0x… or Solana mint" /></div>
+              <div className="address-input"><Search /><Input aria-label="Token contract address" value={tokenAddress} onChange={(event) => changeAddress(event.target.value)} spellCheck={false} autoComplete="off" placeholder="0x… or Solana mint" /></div>
             </label>
             <Button type="submit" disabled={loading || !tokenAddress.trim()} className="analyze-button">
-              {loading ? <><LoaderCircle className="spin" /> Scanning</> : <>Analyze token <ChevronRight /></>}
+              {discovering ? <><LoaderCircle className="spin" /> Checking</> : <>Find networks <ChevronRight /></>}
             </Button>
           </form>
-          <div className="command-foot"><span><ShieldCheck /> Server-side key protection</span><span><Database /> 5-minute result cache</span><span><Activity /> Up to 11 live calls</span></div>
+          <div className="command-foot"><span><Network /> Automatic network detection</span><span><ShieldCheck /> Server-side key protection</span><span><Database /> Saved per network on this device</span></div>
         </section>
 
+        {savedEntries.length ? <SavedAnalyses entries={savedEntries.slice(0, 8)} onOpen={openSavedAnalysis} /> : null}
         {error ? <div className="error-banner"><AlertTriangle /><div><b>Analysis unavailable</b><p>{error}</p></div></div> : null}
-        {loading ? <LoadingState /> : result ? <Results result={result} /> : <EmptyState />}
+        {storageWarning ? <div className="storage-warning"><AlertTriangle />{storageWarning}</div> : null}
+        {discovering ? <LoadingState title="Detecting supported networks" detail="Checking contract deployment and market identity without spending Nansen credits…" /> : null}
+        {!discovering && networks.length ? <NetworkPicker networks={networks} selectedChain={selectedChain} analyzingChain={analyzingChain} savedAnalyses={savedAnalyses} address={lookupAddress} onSelect={selectNetwork} /> : null}
+        {analyzingChain ? <LoadingState title={`Analyzing ${chainLabel(analyzingChain)}`} detail="Querying six Nansen evidence layers and building the BTC benchmark…" /> : result ? <Results result={result} /> : !discovering && networks.length ? <NetworkSelectionState /> : !discovering ? <EmptyState /> : null}
 
         <footer>
           <p>Built for the Nansen Meridian Buildathon. Directional evidence, not investment advice.</p>
@@ -98,12 +182,66 @@ export default function Page() {
   );
 }
 
+function NetworkPicker({ networks, selectedChain, analyzingChain, savedAnalyses, address, onSelect }: {
+  networks: TokenNetwork[];
+  selectedChain: ChainId | null;
+  analyzingChain: ChainId | null;
+  savedAnalyses: Record<string, SavedAnalysis>;
+  address: string;
+  onSelect: (chain: ChainId) => void;
+}) {
+  return (
+    <section className="network-panel">
+      <div className="network-panel-heading">
+        <div><p><Layers3 /> Network discovery</p><h2>Found on {networks.length} supported {networks.length === 1 ? "network" : "networks"}</h2></div>
+        <span>Select a row to analyze or reopen its saved snapshot.</span>
+      </div>
+      <div className="network-table">
+        <div className="network-table-head"><span>Network</span><span>Token identity</span><span>Detection</span><span>Status</span><span /></div>
+        {networks.map((network) => {
+          const saved = savedAnalyses[savedAnalysisKey(network.chain, address)];
+          const active = selectedChain === network.chain;
+          const busy = analyzingChain === network.chain;
+          return (
+            <div className={`network-row ${active ? "active" : ""}`} key={network.chain}>
+              <div className="network-name"><i>{networkBadge(network.chain)}</i><p><b>{network.label}</b><small>{network.chain}</small></p></div>
+              <div className="network-token"><b>{network.name}</b><small>{network.symbol}</small></div>
+              <div className="network-detection"><span>{detectionLabel(network.detection)}</span><small>{network.dexPairCount ? `${network.dexPairCount} DEX ${network.dexPairCount === 1 ? "pair" : "pairs"}` : "Contract check"}</small></div>
+              <div className="network-status">{saved ? <><b><CheckCircle2 /> Saved</b><small>{formatSavedAt(saved.savedAt)} · risk {saved.result.riskScore}</small></> : <><span>Not analyzed</span><small>Nansen credits used only after selection</small></>}</div>
+              <Button type="button" variant={saved ? "outline" : "default"} className={saved ? "network-view-button" : "network-analyze-button"} disabled={analyzingChain !== null} onClick={() => onSelect(network.chain)}>
+                {busy ? <LoaderCircle className="spin" /> : saved ? <Eye /> : <Activity />}{busy ? "Analyzing" : saved ? "View saved" : "Analyze"}
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function SavedAnalyses({ entries, onOpen }: { entries: SavedAnalysis[]; onOpen: (entry: SavedAnalysis) => void }) {
+  return (
+    <section className="saved-strip">
+      <div className="saved-strip-title"><Clock3 /><div><b>Saved analyses</b><span>Stored in this browser by token and network</span></div></div>
+      <div className="saved-items">{entries.map((entry) => (
+        <button key={savedAnalysisKey(entry.result.chain, entry.result.address)} type="button" onClick={() => onOpen(entry)}>
+          <i>{entry.result.token.symbol.slice(0, 2).toUpperCase()}</i><span><b>{entry.result.token.symbol} · {chainLabel(entry.result.chain)}</b><small>Risk {entry.result.riskScore} · {formatSavedAt(entry.savedAt)}</small></span><Eye />
+        </button>
+      ))}</div>
+    </section>
+  );
+}
+
+function NetworkSelectionState() {
+  return <section className="network-prompt"><Network /><div><span>Networks ready</span><h2>Choose a network above to run its analysis.</h2><p>Previously analyzed networks reopen instantly from this browser. A new network uses live Nansen data and is saved separately.</p></div></section>;
+}
+
 function EmptyState() {
   return <section className="empty-state"><div className="empty-radar"><Radar /></div><div><span>Ready to scan</span><h2>Paste a token contract to trace selling pressure.</h2><p>The model checks labeled wallet flows, exchange deposits, top-holder behavior, transfer anomalies, buyer/seller pressure and market health. Missing data is reported—not converted into a safe score.</p></div><div className="signal-preview">{["Smart Money", "CEX flows", "Top holders", "Large transfers", "Buyer / seller", "Liquidity"].map((item, index) => <span key={item}><i>{String(index + 1).padStart(2, "0")}</i>{item}</span>)}</div></section>;
 }
 
-function LoadingState() {
-  return <section className="loading-state"><div className="scan-orbit"><Radar /><i /><i /></div><div><p>Reading labeled onchain activity</p><span>Querying six evidence layers and building the BTC benchmark…</span></div></section>;
+function LoadingState({ title, detail }: { title: string; detail: string }) {
+  return <section className="loading-state"><div className="scan-orbit"><Radar /><i /><i /></div><div><p>{title}</p><span>{detail}</span></div></section>;
 }
 
 function Results({ result }: { result: DumpRiskResult }) {
@@ -193,11 +331,33 @@ function numberTone(value: number | null) { return value === null ? "muted" : va
 function signedPct(value: number | null) { return value === null ? "Unavailable" : `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`; }
 function chainLabel(value: ChainId) { return CHAINS.find((item) => item.value === value)?.label ?? value; }
 function identitySourceLabel(value: DumpRiskResult["token"]["identitySource"] | undefined) { return value === "dexscreener" ? "DEX Screener fallback" : value === "nansen" ? "Nansen" : "contract address fallback"; }
+function detectionLabel(value: TokenNetwork["detection"]) { return value === "contract+dex" ? "Contract + DEX" : value === "contract" ? "Onchain contract" : value === "dex" ? "DEX market" : "Saved snapshot"; }
+function networkBadge(value: ChainId) { return value === "ethereum" ? "ETH" : value === "solana" ? "SOL" : value === "avalanche" ? "AVAX" : value === "arbitrum" ? "ARB" : value === "optimism" ? "OP" : value === "polygon" ? "POL" : value === "bnb" ? "BNB" : "BASE"; }
 function shortAddress(value: string) { return value.length > 18 ? `${value.slice(0, 10)}…${value.slice(-6)}` : value; }
 function truncateLabel(value: string) { return value.length > 22 ? `${value.slice(0, 12)}…${value.slice(-6)}` : value; }
 function formatChartDate(value: string) { const date = new Date(`${value}T00:00:00Z`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(date); }
 function formatDate(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "Date unavailable" : new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date); }
 function formatCheckedAt(value: string) { const date = new Date(value); return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh", timeZoneName: "short" }).format(date); }
+function formatSavedAt(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "Saved" : new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date); }
+function normalizeAddress(value: string) { const trimmed = value.trim(); return trimmed.startsWith("0x") ? trimmed.toLowerCase() : trimmed; }
+function savedAnalysisKey(chain: ChainId, address: string) { return `${chain}:${normalizeAddress(address)}`; }
+function limitSavedAnalyses(records: Record<string, SavedAnalysis>) { return Object.fromEntries(Object.entries(records).sort(([, left], [, right]) => right.savedAt.localeCompare(left.savedAt)).slice(0, MAX_SAVED_ANALYSES)); }
+function savedNetworksForAddress(address: string, records: Record<string, SavedAnalysis>): TokenNetwork[] {
+  const normalized = normalizeAddress(address);
+  return Object.values(records).filter((record) => normalizeAddress(record.result.address) === normalized).map((record) => ({
+    chain: record.result.chain,
+    label: chainLabel(record.result.chain),
+    name: record.result.token.name,
+    symbol: record.result.token.symbol,
+    dexPairCount: 0,
+    liquidityUsd: record.result.token.liquidityUsd,
+    detection: "saved",
+  }));
+}
+function sortNetworks(networks: TokenNetwork[]) {
+  const unique = new Map(networks.map((network) => [network.chain, network]));
+  return [...unique.values()].sort((left, right) => CHAINS.findIndex((item) => item.value === left.chain) - CHAINS.findIndex((item) => item.value === right.chain));
+}
 function explorerTransactionUrl(chain: ChainId, hash: string) {
   if (!hash) return "";
   const explorers: Record<ChainId, string> = {
