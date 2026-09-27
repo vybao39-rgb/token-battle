@@ -35,6 +35,8 @@ type SavedAnalysis = {
   result: DumpRiskResult;
 };
 
+type ErrorKind = "generic" | "credits" | "rate-limit";
+
 export default function Page() {
   const [tokenAddress, setTokenAddress] = useState(DEFAULT_ADDRESS);
   const [lookupAddress, setLookupAddress] = useState("");
@@ -45,6 +47,7 @@ export default function Page() {
   const [analyzingChain, setAnalyzingChain] = useState<ChainId | null>(null);
   const [savedAnalyses, setSavedAnalyses] = useState<Record<string, SavedAnalysis>>({});
   const [error, setError] = useState("");
+  const [errorKind, setErrorKind] = useState<ErrorKind>("generic");
   const [storageWarning, setStorageWarning] = useState("");
 
   useEffect(() => {
@@ -62,6 +65,7 @@ export default function Page() {
   async function findNetworks(event: FormEvent) {
     event.preventDefault();
     setError("");
+    setErrorKind("generic");
     setStorageWarning("");
     setDiscovering(true);
     setResult(null);
@@ -69,8 +73,11 @@ export default function Page() {
     try {
       const address = tokenAddress.trim();
       const response = await fetch("/api/networks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tokenAddress: address }) });
-      const payload = await response.json() as { message?: string } & Partial<TokenNetworkDiscovery>;
-      if (!response.ok) throw new Error(payload.message || "Network lookup failed.");
+      const payload = await response.json().catch(() => ({})) as { message?: string } & Partial<TokenNetworkDiscovery>;
+      if (!response.ok) {
+        if (response.status === 429) setErrorKind("rate-limit");
+        throw new Error(payload.message || (response.status === 429 ? "The request limit has been reached. Please wait a few minutes before trying again." : "Network lookup failed."));
+      }
       const discovered = payload.networks ?? [];
       const savedRows = savedNetworksForAddress(address, savedAnalyses)
         .filter((saved) => !discovered.some((item) => item.chain === saved.chain));
@@ -85,6 +92,7 @@ export default function Page() {
 
   async function selectNetwork(chain: ChainId) {
     setError("");
+    setErrorKind("generic");
     setStorageWarning("");
     setSelectedChain(chain);
     const address = lookupAddress || tokenAddress.trim();
@@ -97,8 +105,16 @@ export default function Page() {
     setAnalyzingChain(chain);
     try {
       const response = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chain, tokenAddress: address }) });
-      const payload = await response.json() as { message?: string } & Partial<DumpRiskResult>;
-      if (!response.ok) throw new Error(payload.message || "Analysis failed.");
+      const payload = await response.json().catch(() => ({})) as { code?: string; message?: string } & Partial<DumpRiskResult>;
+      if (!response.ok) {
+        if (payload.code === "NANSEN_CREDITS_EXHAUSTED" || response.status === 402) setErrorKind("credits");
+        else if (payload.code === "RATE_LIMITED" || response.status === 429) setErrorKind("rate-limit");
+        throw new Error(payload.message || (response.status === 429
+          ? "The request limit has been reached. Please wait a few minutes before trying again."
+          : response.status === 402
+            ? "This shared demo has reached its Nansen API credit allowance."
+            : "Analysis failed."));
+      }
       const analyzed = payload as DumpRiskResult;
       const record = { savedAt: new Date().toISOString(), result: analyzed } satisfies SavedAnalysis;
       const next = limitSavedAnalyses({ ...savedAnalyses, [savedAnalysisKey(chain, address)]: record });
@@ -120,12 +136,14 @@ export default function Page() {
     setSelectedChain(record.result.chain);
     setResult(record.result);
     setError("");
+    setErrorKind("generic");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function changeAddress(value: string) {
     setTokenAddress(value);
     setError("");
+    setErrorKind("generic");
     if (normalizeAddress(value) !== normalizeAddress(lookupAddress)) {
       setNetworks([]);
       setSelectedChain(null);
@@ -167,7 +185,7 @@ export default function Page() {
         </section>
 
         {savedEntries.length ? <SavedAnalyses entries={savedEntries.slice(0, 8)} onOpen={openSavedAnalysis} /> : null}
-        {error ? <div className="error-banner"><AlertTriangle /><div><b>Analysis unavailable</b><p>{error}</p></div></div> : null}
+        {error ? <AnalysisAlert kind={errorKind} message={error} /> : null}
         {storageWarning ? <div className="storage-warning"><AlertTriangle />{storageWarning}</div> : null}
         {discovering ? <LoadingState title="Detecting supported networks" detail="Checking contract deployment and market identity without spending Nansen credits…" /> : null}
         {!discovering && networks.length ? <NetworkPicker networks={networks} selectedChain={selectedChain} analyzingChain={analyzingChain} savedAnalyses={savedAnalyses} address={lookupAddress} onSelect={selectNetwork} /> : null}
@@ -180,6 +198,36 @@ export default function Page() {
       </div>
     </main>
   );
+}
+
+function AnalysisAlert({ kind, message }: { kind: ErrorKind; message: string }) {
+  if (kind === "credits") {
+    return (
+      <section className="usage-alert credits-alert" role="alert" aria-live="assertive">
+        <div className="usage-alert-icon"><ShieldAlert /></div>
+        <div className="usage-alert-copy">
+          <span>Shared demo temporarily paused</span>
+          <h2>Nansen API credits have been exhausted</h2>
+          <p>{message}</p>
+          <small>Previously saved analyses on this browser can still be reopened. Repeated retries will not create a result.</small>
+        </div>
+      </section>
+    );
+  }
+  if (kind === "rate-limit") {
+    return (
+      <section className="usage-alert rate-alert" role="alert" aria-live="assertive">
+        <div className="usage-alert-icon"><Clock3 /></div>
+        <div className="usage-alert-copy">
+          <span>Request protection active</span>
+          <h2>Analysis limit reached</h2>
+          <p>{message}</p>
+          <small>This limit protects the shared Nansen credit pool for every visitor.</small>
+        </div>
+      </section>
+    );
+  }
+  return <div className="error-banner" role="alert"><AlertTriangle /><div><b>Analysis unavailable</b><p>{message}</p></div></div>;
 }
 
 function NetworkPicker({ networks, selectedChain, analyzingChain, savedAnalyses, address, onSelect }: {

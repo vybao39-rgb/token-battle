@@ -37,6 +37,13 @@ export type DumpRiskRun = {
   sourceCheckedAt: string;
 };
 
+export class NansenCreditsExhaustedError extends Error {
+  constructor() {
+    super("This shared demo has reached its Nansen API credit allowance. New live analyses are temporarily unavailable until credits are added or the allowance resets.");
+    this.name = "NansenCreditsExhaustedError";
+  }
+}
+
 export type TokenIdentityLookupArchive = {
   source: "dexscreener";
   endpoint: string;
@@ -87,6 +94,7 @@ export async function runDumpRiskAnalysisWithArchive(request: AnalysisRequest, a
   ]);
 
   const [infoCall, smartFlowCall, exchangeFlowCall, transfersCall, buyersCall, sellersCall, holdersCall, smartNetflowCall, indicatorsCall, tokenOhlcvCall, btcOhlcvCall] = calls;
+  if (calls.some(isNansenCreditFailure)) throw new NansenCreditsExhaustedError();
   const info = infoCall.ok ? unwrapObject(infoCall.payload) : {};
   const details = asObject(info.token_details);
   const spot = asObject(info.spot_metrics);
@@ -371,6 +379,14 @@ function indicatorSummary(label: string, row: JsonObject | null): string {
 }
 
 function buildEndpointStatus(items: Array<[string, ApiResult]>): EndpointStatus[] { return items.map(([endpoint, result]) => ({ endpoint, available: result.ok, note: result.ok ? `Available${result.credits ? ` · ${result.credits} credits` : ""}` : result.error ?? "Request failed" })); }
+function isNansenCreditFailure(result: ApiResult): boolean {
+  if (result.ok) return false;
+  if (result.httpStatus === 402) return true;
+  const message = `${result.error ?? ""} ${stringOf(result.payload.message)} ${stringOf(result.payload.detail)}`.toLowerCase();
+  const mentionsAllowance = /credit|quota|billing|payment|account balance/.test(message);
+  const mentionsExhaustion = /exhaust|exceed|insufficient|not enough|limit|deplet|upgrade|required/.test(message);
+  return mentionsAllowance && mentionsExhaustion;
+}
 function classifyRisk(score: number): DumpRiskResult["verdict"] { return score >= 75 ? "Strong dump pressure" : score >= 60 ? "Elevated distribution" : score >= 45 ? "Mixed / neutral" : score >= 25 ? "Accumulation" : "Strong accumulation"; }
 function summaryFor(verdict: DumpRiskResult["verdict"], score: number, signals: RiskSignal[]): string { const strongest = [...signals].sort((a, b) => (b.riskScore ?? 0) - (a.riskScore ?? 0))[0]; return `${verdict} at ${score}/100. The strongest observed risk is ${strongest.label.toLowerCase()}: ${strongest.headline.toLowerCase()}.`; }
 function rowsOf(payload: JsonObject): JsonObject[] { const data = payload.data; if (Array.isArray(data)) return data.map(asObject); if (Array.isArray(asObject(data).data)) return (asObject(data).data as unknown[]).map(asObject); if (Array.isArray(payload.results)) return payload.results.map(asObject); return []; }

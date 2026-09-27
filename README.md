@@ -23,7 +23,7 @@ The 30-day comparison chart calls `tgm/token-ohlcv` for the selected token and B
 
 ## Credit usage
 
-Network discovery uses fixed public-chain RPCs plus DEX Screener and consumes no Nansen credits. A fresh complete analysis of one selected network makes 11 API calls and costs up to 23 Nansen credits using the published endpoint prices. The UI reports credits from Nansen response headers. Results are cached server-side for five minutes. Vercel WAF limits `POST /api/analyze` to three requests per ten minutes per IP, with an equivalent in-process limit as a secondary safeguard. Browser-saved results are device-local and can be reopened after the server cache expires without another API request.
+Network discovery uses fixed public-chain RPCs plus DEX Screener and consumes no Nansen credits. A fresh complete analysis of one selected network makes 11 API calls and costs up to 23 Nansen credits using the published endpoint prices. The UI reports credits from Nansen response headers. Results are cached server-side for five minutes. Vercel WAF limits `POST /api/analyze` to three requests per ten minutes per IP, with an equivalent in-process limit as a secondary safeguard. If the shared Nansen allowance is exhausted, the API returns a dedicated error code and the interface displays a prominent public notice instead of a misleading empty result. Browser-saved results are device-local and can still be reopened without another API request.
 
 ## Run locally
 

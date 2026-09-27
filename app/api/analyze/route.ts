@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { CHAIN_IDS } from "@/lib/dump-risk";
 import { saveAnalysisArchive } from "@/lib/analysis-archive";
-import { runDumpRiskAnalysisWithArchive } from "@/lib/nansen";
+import { NansenCreditsExhaustedError, runDumpRiskAnalysisWithArchive } from "@/lib/nansen";
 
 export const runtime = "nodejs";
 
@@ -27,7 +27,13 @@ export async function POST(request: Request) {
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "anonymous";
     const now = Date.now();
     const recent = (requests.get(ip) ?? []).filter((timestamp) => now - timestamp < WINDOW_MS);
-    if (recent.length >= MAX_REQUESTS) return NextResponse.json({ message: "Analysis limit reached. Try again in a few minutes." }, { status: 429 });
+    if (recent.length >= MAX_REQUESTS) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((WINDOW_MS - (now - recent[0])) / 1000));
+      return NextResponse.json(
+        { code: "RATE_LIMITED", message: "This device has reached the analysis limit. Please wait a few minutes before trying again." },
+        { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+      );
+    }
     requests.set(ip, [...recent, now]);
 
     const parsed = schema.safeParse(await request.json());
@@ -44,7 +50,13 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ ...run.result, archived });
   } catch (error) {
+    if (error instanceof NansenCreditsExhaustedError) {
+      return NextResponse.json(
+        { code: "NANSEN_CREDITS_EXHAUSTED", message: error.message },
+        { status: 402, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     const message = error instanceof Error ? error.message : "The analysis could not be completed.";
-    return NextResponse.json({ message }, { status: /credit|payment|forbidden/i.test(message) ? 402 : 502 });
+    return NextResponse.json({ code: "ANALYSIS_UNAVAILABLE", message }, { status: 502 });
   }
 }
