@@ -75,9 +75,9 @@ Open `http://localhost:5173`. Without `NANSEN_API_KEY`, the server returns a cle
 
 ## Buildathon checklist
 
-- [ ] Create and configure a Nansen API key.
-- [ ] Confirm a live token analysis and record the credits shown.
-- [ ] Keep this GitHub repository public.
+- [x] Create and configure a Nansen API key.
+- [x] Confirm a live token analysis and record the credits shown.
+- [x] Keep this GitHub repository public.
 - [ ] Record a 30–60 second demo with real Nansen results.
 - [ ] Post the demo on X, tag `@nansen_ai`, and include the GitHub link.
 - [ ] Submit the Nansen account email, X post URL and GitHub URL through the official form.
