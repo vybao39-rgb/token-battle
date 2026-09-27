@@ -23,7 +23,7 @@ The 30-day comparison chart calls `tgm/token-ohlcv` for the selected token and B
 
 ## Credit usage
 
-Network discovery uses fixed public-chain RPCs plus DEX Screener and consumes no Nansen credits. A fresh complete analysis of one selected network makes 11 API calls and costs up to 23 Nansen credits using the published endpoint prices. The UI reports credits from Nansen response headers. Results are cached server-side for five minutes, and the API route limits each IP to five requests per ten minutes. Browser-saved results are device-local and can be reopened after the server cache expires without another API request.
+Network discovery uses fixed public-chain RPCs plus DEX Screener and consumes no Nansen credits. A fresh complete analysis of one selected network makes 11 API calls and costs up to 23 Nansen credits using the published endpoint prices. The UI reports credits from Nansen response headers. Results are cached server-side for five minutes. Vercel WAF limits `POST /api/analyze` to three requests per ten minutes per IP, with an equivalent in-process limit as a secondary safeguard. Browser-saved results are device-local and can be reopened after the server cache expires without another API request.
 
 ## Run locally
 
@@ -65,6 +65,8 @@ Open `http://localhost:5173`. Without `NANSEN_API_KEY`, the server returns a cle
 - The Nansen key is read only by the server route and is never included in browser JavaScript or API responses.
 - Private archive files require Vercel Blob authentication and are served only through administrator-protected routes.
 - The administrator session uses an HTTP-only, Secure, SameSite=Strict signed cookie and expires after eight hours.
+- Production responses include a Content Security Policy plus anti-framing, MIME-sniffing, referrer and browser-permission headers.
+- Vercel WAF protects the credit-consuming analysis endpoint with a shared per-IP rate limit across server instances.
 - `.env*` files are ignored; never commit a real key, seed phrase, or private key.
 - The app is read-only and never connects a wallet or requests a signature.
 - Scores depend on Nansen labels, endpoint coverage, lookback windows and available market data.

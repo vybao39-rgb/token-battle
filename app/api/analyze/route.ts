@@ -8,7 +8,9 @@ export const runtime = "nodejs";
 
 const requests = new Map<string, number[]>();
 const WINDOW_MS = 10 * 60 * 1000;
-const MAX_REQUESTS = 5;
+// Secondary protection for a single runtime instance. Vercel WAF enforces the
+// same fixed window globally before a request reaches this API route.
+const MAX_REQUESTS = 3;
 
 const schema = z.object({
   chain: z.enum(CHAIN_IDS),
