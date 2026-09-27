@@ -1,11 +1,11 @@
 import { get, list, put, type ListBlobResultBlob } from "@vercel/blob";
 import type { AnalysisRequest, DumpRiskResult } from "@/lib/dump-risk";
-import type { DumpRiskRun, NansenCallArchive } from "@/lib/nansen";
+import type { DumpRiskRun, NansenCallArchive, TokenIdentityLookupArchive } from "@/lib/nansen";
 
 export const ARCHIVE_PREFIX = "dump-risk-archive/";
 
 export type AnalysisArchiveRecord = {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   id: string;
   searchedAt: string;
   search: AnalysisRequest;
@@ -17,6 +17,7 @@ export type AnalysisArchiveRecord = {
   nansen: {
     calls: NansenCallArchive[];
   };
+  identityLookup?: TokenIdentityLookupArchive;
 };
 
 export type ArchiveListItem = {
@@ -25,6 +26,8 @@ export type ArchiveListItem = {
   size: number;
   chain: string;
   address: string;
+  tokenName: string | null;
+  tokenSymbol: string | null;
   riskScore: number | null;
   cached: boolean;
 };
@@ -41,7 +44,7 @@ export async function saveAnalysisArchive(search: AnalysisRequest, run: DumpRisk
   const searchedAt = new Date().toISOString();
   const id = crypto.randomUUID();
   const record: AnalysisArchiveRecord = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id,
     searchedAt,
     search,
@@ -51,11 +54,14 @@ export async function saveAnalysisArchive(search: AnalysisRequest, run: DumpRisk
     },
     analysis: { ...run.result, archived: true },
     nansen: { calls: run.nansenCalls },
+    identityLookup: run.identityLookup,
   };
   const timestamp = searchedAt.replaceAll(":", "-");
   const newestFirst = String(9_999_999_999_999 - Date.now()).padStart(13, "0");
   const address = safeSegment(search.tokenAddress.toLowerCase());
-  const pathname = `${ARCHIVE_PREFIX}records/${newestFirst}__${timestamp}__${search.chain}__${address}__risk-${run.result.riskScore}__${run.result.cached ? "cached" : "live"}__${id}.json`;
+  const tokenName = encodeMetadata(run.result.token.name.slice(0, 80));
+  const tokenSymbol = encodeMetadata(run.result.token.symbol.slice(0, 24));
+  const pathname = `${ARCHIVE_PREFIX}records/${newestFirst}__${timestamp}__${search.chain}__${address}__name-${tokenName}__symbol-${tokenSymbol}__risk-${run.result.riskScore}__${run.result.cached ? "cached" : "live"}__${id}.json`;
   await put(pathname, JSON.stringify(record), {
     access: "private",
     addRandomSuffix: false,
@@ -111,6 +117,8 @@ function toListItem(blob: ListBlobResultBlob): ArchiveListItem {
     size: blob.size,
     chain: parts[chainIndex] ?? "unknown",
     address: parts[chainIndex + 1] ?? "unknown",
+    tokenName: decodeMetadata(parts.find((part) => part.startsWith("name-"))?.slice(5)),
+    tokenSymbol: decodeMetadata(parts.find((part) => part.startsWith("symbol-"))?.slice(7)),
     riskScore: Number.isFinite(risk) ? risk : null,
     cached: parts.includes("cached"),
   };
@@ -118,4 +126,13 @@ function toListItem(blob: ListBlobResultBlob): ArchiveListItem {
 
 function safeSegment(value: string): string {
   return value.replace(/[^a-z0-9_-]/gi, "-").slice(0, 140);
+}
+
+function encodeMetadata(value: string): string {
+  return Buffer.from(value, "utf8").toString("hex");
+}
+
+function decodeMetadata(value: string | undefined): string | null {
+  if (!value || !/^[a-f0-9]+$/i.test(value) || value.length % 2 !== 0) return null;
+  try { return Buffer.from(value, "hex").toString("utf8") || null; } catch { return null; }
 }

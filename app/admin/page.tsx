@@ -130,13 +130,13 @@ export default function AdminPage() {
             </section>
 
             <section className="admin-table-card">
-              <div className="admin-table-head"><span>Time</span><span>Network / contract</span><span>Risk</span><span>Source</span><span>File</span></div>
+              <div className="admin-table-head"><span>Time</span><span>Token / network</span><span>Risk</span><span>Source</span><span>File</span></div>
               {records.map((record) => {
                 const viewUrl = `/api/admin/record?pathname=${encodeURIComponent(record.pathname)}`;
                 const downloadUrl = `${viewUrl}&download=1`;
                 return <article className="admin-record" key={record.pathname}>
                   <time>{formatDate(record.uploadedAt)}</time>
-                  <div><b>{record.chain}</b><code>{shortAddress(record.address)}</code></div>
+                  <div><b>{record.tokenName ?? record.tokenSymbol ?? "Unidentified token"}</b><small>{record.tokenSymbol ? `${record.tokenSymbol} · ` : ""}{record.chain}</small><code>{shortAddress(record.address)}</code></div>
                   <strong className={riskClass(record.riskScore)}>{record.riskScore ?? "—"}</strong>
                   <span>{record.cached ? "Cached copy" : "Live calls"}</span>
                   <div className="admin-record-actions"><a href={viewUrl} target="_blank" rel="noreferrer">View <ExternalLink /></a><a href={downloadUrl}>Download <Download /></a></div>

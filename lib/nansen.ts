@@ -33,7 +33,18 @@ export type NansenCallArchive = {
 export type DumpRiskRun = {
   result: DumpRiskResult;
   nansenCalls: NansenCallArchive[];
+  identityLookup: TokenIdentityLookupArchive;
   sourceCheckedAt: string;
+};
+
+export type TokenIdentityLookupArchive = {
+  source: "dexscreener";
+  endpoint: string;
+  ok: boolean;
+  httpStatus: number | null;
+  selected: { name: string; symbol: string; logoUrl: string } | null;
+  response: unknown;
+  error?: string;
 };
 
 const API_BASE = "https://api.nansen.ai/api/v1";
@@ -53,6 +64,7 @@ export async function runDumpRiskAnalysisWithArchive(request: AnalysisRequest, a
 
   const date = dateRange(30);
   const shortDate = dateRange(7);
+  const identityLookupPromise = lookupTokenIdentity(request);
   const calls = await Promise.all([
     callNansen("/tgm/token-information", { chain: request.chain, token_address: request.tokenAddress, timeframe: "1d" }, apiKey),
     callNansen("/tgm/flows", { chain: request.chain, token_address: request.tokenAddress, date: shortDate, label: "smart_money" }, apiKey),
@@ -78,10 +90,16 @@ export async function runDumpRiskAnalysisWithArchive(request: AnalysisRequest, a
   const info = infoCall.ok ? unwrapObject(infoCall.payload) : {};
   const details = asObject(info.token_details);
   const spot = asObject(info.spot_metrics);
+  const identityLookup = await identityLookupPromise;
+  const fallbackIdentity = identityLookup.selected;
+  const nansenName = stringOf(info.name).trim() || stringOf(details.name).trim();
+  const nansenSymbol = stringOf(info.symbol).trim() || stringOf(details.symbol).trim();
+  const usedIdentityFallback = Boolean(fallbackIdentity && (!nansenName || !nansenSymbol));
   const token = {
-    name: stringOf(info.name ?? details.name) || "Unknown token",
-    symbol: stringOf(info.symbol ?? details.symbol) || shortAddress(request.tokenAddress),
-    logoUrl: stringOf(info.logo_url ?? details.logo_url),
+    name: nansenName || fallbackIdentity?.name || "Unknown token",
+    symbol: nansenSymbol || fallbackIdentity?.symbol || shortAddress(request.tokenAddress),
+    logoUrl: stringOf(info.logo).trim() || stringOf(info.logo_url).trim() || stringOf(details.logo_url).trim() || fallbackIdentity?.logoUrl || "",
+    identitySource: usedIdentityFallback ? "dexscreener" as const : nansenName || nansenSymbol ? "nansen" as const : "contract" as const,
     marketCapUsd: nullableNumber(details.market_cap_usd ?? info.market_cap_usd),
     liquidityUsd: nullableNumber(spot.liquidity_usd ?? info.liquidity_usd),
     volumeUsd: nullableNumber(spot.volume_total_usd ?? spot.volume_usd ?? info.volume_usd),
@@ -160,10 +178,71 @@ export async function runDumpRiskAnalysisWithArchive(request: AnalysisRequest, a
   const value: DumpRiskRun = {
     result,
     nansenCalls: calls.map((call) => toArchiveCall(call, apiKey)),
+    identityLookup,
     sourceCheckedAt: result.checkedAt,
   };
   cache.set(cacheKey, { expiresAt: Date.now() + CACHE_TTL_MS, value });
   return value;
+}
+
+const DEXSCREENER_CHAIN_IDS: Record<AnalysisRequest["chain"], string> = {
+  ethereum: "ethereum",
+  solana: "solana",
+  base: "base",
+  bnb: "bsc",
+  arbitrum: "arbitrum",
+  polygon: "polygon",
+  avalanche: "avalanche",
+  optimism: "optimism",
+};
+
+async function lookupTokenIdentity(request: AnalysisRequest): Promise<TokenIdentityLookupArchive> {
+  const chain = DEXSCREENER_CHAIN_IDS[request.chain];
+  const endpoint = `https://api.dexscreener.com/token-pairs/v1/${chain}/${encodeURIComponent(request.tokenAddress)}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6_000);
+  try {
+    const response = await fetch(endpoint, { headers: { Accept: "application/json" }, signal: controller.signal });
+    const payload = await response.json().catch(() => []);
+    if (!response.ok) {
+      return { source: "dexscreener", endpoint, ok: false, httpStatus: response.status, selected: null, response: payload, error: `HTTP ${response.status}` };
+    }
+    const target = request.tokenAddress.toLowerCase();
+    const candidates = (Array.isArray(payload) ? payload : []).flatMap((entry) => {
+      const pair = asObject(entry);
+      const base = asObject(pair.baseToken);
+      const quote = asObject(pair.quoteToken);
+      const matchingToken = [base, quote].find((token) => stringOf(token.address).toLowerCase() === target);
+      if (!matchingToken) return [];
+      return [{
+        name: stringOf(matchingToken.name).trim(),
+        symbol: stringOf(matchingToken.symbol).trim(),
+        logoUrl: stringOf(asObject(pair.info).imageUrl),
+        liquidityUsd: numberOf(asObject(pair.liquidity).usd),
+      }];
+    }).filter((candidate) => candidate.name || candidate.symbol).sort((a, b) => b.liquidityUsd - a.liquidityUsd);
+    const best = candidates[0];
+    return {
+      source: "dexscreener",
+      endpoint,
+      ok: true,
+      httpStatus: response.status,
+      selected: best ? { name: best.name, symbol: best.symbol, logoUrl: best.logoUrl } : null,
+      response: payload,
+    };
+  } catch (error) {
+    return {
+      source: "dexscreener",
+      endpoint,
+      ok: false,
+      httpStatus: null,
+      selected: null,
+      response: [],
+      error: error instanceof Error && error.name === "AbortError" ? "Request timed out" : "Request failed",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function callNansen(path: string, body: JsonObject, apiKey: string): Promise<ApiResult> {

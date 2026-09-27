@@ -113,7 +113,11 @@ function Results({ result }: { result: DumpRiskResult }) {
       <section className={`verdict-panel ${tone}`}>
         <div className="token-identity">
           <div className="token-monogram">{result.token.symbol.slice(0, 2).toUpperCase()}</div>
-          <div><div className="identity-line"><h2>{result.token.symbol}</h2><Badge variant="outline">{chainLabel(result.chain)}</Badge></div><p>{result.token.name}</p><code>{shortAddress(result.address)}</code></div>
+          <div>
+            <div className="identity-line"><h2>{result.token.name}</h2><Badge className="symbol-badge">{result.token.symbol}</Badge><Badge variant="outline">{chainLabel(result.chain)}</Badge></div>
+            <p className="identity-source">Identity: {identitySourceLabel(result.token.identitySource)} · Risk data: Nansen</p>
+            <code>{shortAddress(result.address)}</code>
+          </div>
         </div>
         <RiskGauge score={result.riskScore} />
         <div className="verdict-copy">
@@ -188,6 +192,7 @@ function riskTone(score: number) { return score >= 60 ? "risk-high" : score <= 4
 function numberTone(value: number | null) { return value === null ? "muted" : value >= 0 ? "positive-number" : "negative-number"; }
 function signedPct(value: number | null) { return value === null ? "Unavailable" : `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`; }
 function chainLabel(value: ChainId) { return CHAINS.find((item) => item.value === value)?.label ?? value; }
+function identitySourceLabel(value: DumpRiskResult["token"]["identitySource"] | undefined) { return value === "dexscreener" ? "DEX Screener fallback" : value === "nansen" ? "Nansen" : "contract address fallback"; }
 function shortAddress(value: string) { return value.length > 18 ? `${value.slice(0, 10)}…${value.slice(-6)}` : value; }
 function truncateLabel(value: string) { return value.length > 22 ? `${value.slice(0, 12)}…${value.slice(-6)}` : value; }
 function formatChartDate(value: string) { const date = new Date(`${value}T00:00:00Z`); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(date); }

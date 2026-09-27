@@ -63,6 +63,7 @@ export type DumpRiskResult = {
     name: string;
     symbol: string;
     logoUrl: string;
+    identitySource: "nansen" | "dexscreener" | "contract";
     marketCapUsd: number | null;
     liquidityUsd: number | null;
     volumeUsd: number | null;
